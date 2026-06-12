@@ -1,0 +1,147 @@
+"""Control data loading and reference range computation.
+
+Bundled controls are derived from ctrls_2.xlsx / ctrls_hg38.xlsx in the
+NanoImprint repository (carolinehey/NanoImprint).
+
+Control data format (TSV, one row per CpG site per control sample):
+    region_name  position  sample_id  methylation_pct
+
+Users can supply additional or replacement controls via --controls flag.
+"""
+
+from __future__ import annotations
+
+import logging
+from importlib import resources
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+log = logging.getLogger(__name__)
+
+# Methylation range considered "imprinted" in controls (40-60% = heterozygous)
+IMPRINT_MIN = 40.0
+IMPRINT_MAX = 60.0
+
+# Abnormal thresholds for flagging sample results
+FLAG_LOW = 30.0
+FLAG_HIGH = 75.0
+
+
+def load_bundled_controls(genome: str) -> pd.DataFrame:
+    """Load the bundled control dataset for the given genome.
+
+    Returns a DataFrame with columns:
+        region_name, position, sample_id, methylation_pct
+    """
+    genome = genome.lower()
+    filename = f"controls_{genome}.tsv"
+    try:
+        data_path = resources.files("methreport.data").joinpath(filename)
+        df = pd.read_csv(str(data_path), sep="\t")
+        log.debug("Loaded %d bundled control rows for %s", len(df), genome)
+        return df
+    except (FileNotFoundError, ModuleNotFoundError, TypeError):
+        log.warning("Bundled controls for '%s' not found at %s — returning empty DataFrame", genome, filename)
+        return pd.DataFrame(columns=["region_name", "position", "sample_id", "methylation_pct"])
+
+
+def load_user_controls(path: Path | str) -> pd.DataFrame:
+    """Load user-supplied controls TSV.
+
+    Expected columns: region_name, position, sample_id, methylation_pct
+    Missing columns cause a ValueError.
+    """
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"Controls file not found: {path}")
+
+    suffix = path.suffix.lower()
+    if suffix in (".xlsx", ".xls"):
+        df = pd.read_excel(path)
+    elif suffix in (".tsv", ".txt"):
+        df = pd.read_csv(path, sep="\t")
+    elif suffix == ".csv":
+        df = pd.read_csv(path)
+    else:
+        raise ValueError(f"Unsupported controls format: {suffix}")
+
+    required = {"region_name", "position", "sample_id", "methylation_pct"}
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(f"Controls file missing columns: {missing}")
+
+    log.info("Loaded %d user control rows from %s", len(df), path)
+    return df[list(required)]
+
+
+def merge_controls(
+    genome: str,
+    user_controls_path: Path | str | None = None,
+    replace: bool = False,
+) -> pd.DataFrame:
+    """Return merged control DataFrame.
+
+    If replace=True, bundled controls are replaced by user controls.
+    Otherwise user controls are appended.
+    """
+    if replace and user_controls_path is not None:
+        return load_user_controls(user_controls_path)
+
+    bundled = load_bundled_controls(genome)
+    if user_controls_path is not None:
+        user = load_user_controls(user_controls_path)
+        return pd.concat([bundled, user], ignore_index=True)
+    return bundled
+
+
+def compute_reference_ranges(
+    controls: pd.DataFrame,
+    region_name: str,
+) -> pd.DataFrame:
+    """Compute per-position mean ± SD from control data for a region.
+
+    Returns DataFrame with columns:
+        position, mean, sd, n_controls, lower_1sd, upper_1sd, lower_2sd, upper_2sd
+    Only positions where controls show 40-60% methylation (imprinted pattern) are included.
+    """
+    subset = controls[controls["region_name"] == region_name].copy()
+    if subset.empty:
+        return pd.DataFrame(columns=["position", "mean", "sd", "n_controls",
+                                     "lower_1sd", "upper_1sd", "lower_2sd", "upper_2sd"])
+
+    # Identify imprinted positions: those where controls are 40-60%
+    pos_stats = (
+        subset.groupby("position")["methylation_pct"]
+        .agg(mean="mean", sd="std", n_controls="count")
+        .reset_index()
+    )
+    pos_stats["sd"] = pos_stats["sd"].fillna(0.0)
+    pos_stats = pos_stats[
+        pos_stats["mean"].between(IMPRINT_MIN, IMPRINT_MAX)
+    ].copy()
+
+    pos_stats["lower_1sd"] = pos_stats["mean"] - pos_stats["sd"]
+    pos_stats["upper_1sd"] = pos_stats["mean"] + pos_stats["sd"]
+    pos_stats["lower_2sd"] = pos_stats["mean"] - 2 * pos_stats["sd"]
+    pos_stats["upper_2sd"] = pos_stats["mean"] + 2 * pos_stats["sd"]
+
+    return pos_stats.sort_values("position").reset_index(drop=True)
+
+
+def flag_result(mean_methylation: float) -> str:
+    """Return a flag string for a sample's mean methylation.
+
+    "LOW"    — likely loss of methylation at normally-methylated allele
+    "HIGH"   — likely gain of methylation
+    "NORMAL" — within expected range
+    "NA"     — no data
+    """
+    if np.isnan(mean_methylation):
+        return "NA"
+    if mean_methylation < FLAG_LOW:
+        return "LOW"
+    if mean_methylation > FLAG_HIGH:
+        return "HIGH"
+    return "NORMAL"
