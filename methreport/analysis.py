@@ -1,6 +1,8 @@
 """Orchestrates per-sample methylation analysis across all DMRs.
 
-Ties together reader → controls → summary for one sample BAM.
+Supports two input modes:
+  - BEDMethyl (recommended): modkit pileup output — strand-aware, calibrated
+  - modbam: direct BAM reading via MM/ML tag parser (fallback)
 """
 
 from __future__ import annotations
@@ -12,7 +14,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from methreport.controls import compute_reference_ranges, flag_result, merge_controls
+from methreport.controls import compute_reference_ranges, flag_result, merge_controls, z_score_flag
 from methreport.reader import (
     DEFAULT_CALL_THRESHOLD,
     DEFAULT_MIN_COVERAGE,
@@ -30,8 +32,10 @@ class RegionResult:
     unphased: RegionMethylation
     hp1: RegionMethylation
     hp2: RegionMethylation
-    reference: pd.DataFrame   # per-position control stats
-    flag: str = "NA"          # "NORMAL" | "LOW" | "HIGH" | "NA"
+    reference: pd.DataFrame     # per-position control stats (informative CpGs only)
+    flag: str = "NA"            # "NORMAL" | "LOW" | "HIGH" | "NA"
+    z_score: float = float("nan")   # mean z-score across informative CpGs
+    n_informative: int = 0      # number of CpGs used for z-score (subset of n_cpg)
 
     @property
     def mean_methylation(self) -> float:
@@ -50,6 +54,9 @@ class RegionResult:
         return self.hp1.n_cpg > 0 or self.hp2.n_cpg > 0
 
     def summary_row(self) -> dict:
+        meth = self.mean_methylation
+        hp1 = self.mean_methylation_hp1
+        hp2 = self.mean_methylation_hp2
         return {
             "region": self.region.label,
             "disorder": self.region.disorder,
@@ -57,12 +64,14 @@ class RegionResult:
             "start": self.region.start,
             "end": self.region.end,
             "n_cpg": self.unphased.n_cpg,
+            "n_informative_cpg": self.n_informative,
             "mean_coverage": round(self.unphased.mean_coverage, 1),
             "mean_coverage_hp1": round(self.hp1.mean_coverage, 1),
             "mean_coverage_hp2": round(self.hp2.mean_coverage, 1),
-            "methylation_pct": round(self.mean_methylation, 1) if not np.isnan(self.mean_methylation) else None,
-            "methylation_pct_hp1": round(self.mean_methylation_hp1, 1) if not np.isnan(self.mean_methylation_hp1) else None,
-            "methylation_pct_hp2": round(self.mean_methylation_hp2, 1) if not np.isnan(self.mean_methylation_hp2) else None,
+            "methylation_pct": round(meth, 1) if not np.isnan(meth) else None,
+            "methylation_pct_hp1": round(hp1, 1) if not np.isnan(hp1) else None,
+            "methylation_pct_hp2": round(hp2, 1) if not np.isnan(hp2) else None,
+            "z_score": round(self.z_score, 2) if not np.isnan(self.z_score) else None,
             "flag": self.flag,
         }
 
@@ -70,8 +79,9 @@ class RegionResult:
 @dataclass
 class SampleAnalysis:
     sample_id: str
-    bam_path: Path
+    input_path: Path        # BAM or unphased BED
     genome: str
+    input_mode: str = "bam"  # "bam" | "bed"
     results: list[RegionResult] = field(default_factory=list)
 
     def summary_table(self) -> pd.DataFrame:
@@ -83,55 +93,118 @@ class SampleAnalysis:
         return [r for r in self.results if r.flag in ("LOW", "HIGH")]
 
 
+def _compute_flag(
+    unphased: RegionMethylation,
+    reference: pd.DataFrame,
+) -> tuple[str, float, int]:
+    """Compute flag using z-score if reference is available, else fixed threshold."""
+    if reference.empty:
+        return flag_result(unphased.mean_methylation_pct), float("nan"), 0
+
+    sample_df = unphased.to_dataframe()
+    if sample_df.empty:
+        return "NA", float("nan"), 0
+
+    return z_score_flag(sample_df, reference)
+
+
 def run_analysis(
-    bam_path: Path | str,
     genome: str = "t2t",
     sample_id: str | None = None,
+    # modbam input
+    bam_path: Path | str | None = None,
+    call_threshold: float = DEFAULT_CALL_THRESHOLD,
+    # BEDMethyl input
+    bed_unphased: Path | str | None = None,
+    bed_hp1: Path | str | None = None,
+    bed_hp2: Path | str | None = None,
+    # shared
+    min_coverage: int = DEFAULT_MIN_COVERAGE,
     user_controls_path: Path | str | None = None,
     replace_controls: bool = False,
-    call_threshold: float = DEFAULT_CALL_THRESHOLD,
-    min_coverage: int = DEFAULT_MIN_COVERAGE,
 ) -> SampleAnalysis:
-    """Run full methylation analysis for a sample BAM.
+    """Run full methylation analysis for a sample.
+
+    Accepts either a modbam file (bam_path) or pre-processed modkit BEDMethyl
+    files (bed_unphased + optionally bed_hp1/bed_hp2). BEDMethyl is strongly
+    recommended as it avoids strand-merging artefacts from raw MM/ML parsing.
 
     Parameters
     ----------
-    bam_path:
-        Path to the indexed modbam file.
     genome:
-        Reference genome used ('t2t' or 'hg38').
+        Reference genome ('t2t' or 'hg38').
     sample_id:
-        Name shown in the report. Defaults to BAM filename stem.
-    user_controls_path:
-        Optional user-supplied controls TSV/XLSX.
-    replace_controls:
-        If True, replace bundled controls with user-supplied ones.
+        Label used in the report. Defaults to filename stem of the input.
+    bam_path:
+        Path to an indexed modbam file. Mutually exclusive with bed_unphased.
     call_threshold:
-        Probability threshold to call a base as methylated (0–1).
+        MM/ML probability threshold for methylation calls (modbam mode only).
+    bed_unphased:
+        Path to modkit BEDMethyl file for all reads. Enables BED input mode.
+    bed_hp1 / bed_hp2:
+        Optional modkit BEDMethyl files for HP1 and HP2 (BED mode only).
     min_coverage:
-        Minimum read depth at a CpG to include it.
+        Minimum read depth at a CpG site to include it.
+    user_controls_path:
+        Optional user-supplied controls TSV/XLSX to supplement or replace bundled data.
+    replace_controls:
+        If True, bundled controls are replaced rather than supplemented.
     """
-    bam_path = Path(bam_path)
-    if sample_id is None:
-        sample_id = bam_path.stem
+    if bed_unphased is not None and bam_path is not None:
+        raise ValueError("Provide either bam_path or bed_unphased, not both.")
+    if bed_unphased is None and bam_path is None:
+        raise ValueError("Provide either bam_path or bed_unphased.")
 
-    log.info("Starting analysis: sample=%s  genome=%s  bam=%s", sample_id, genome, bam_path)
+    # Determine input mode and label
+    use_bed = bed_unphased is not None
+    input_path = Path(bed_unphased) if use_bed else Path(bam_path)
+    if sample_id is None:
+        sample_id = input_path.stem
+
+    log.info(
+        "Starting analysis: sample=%s  genome=%s  mode=%s  input=%s",
+        sample_id, genome, "bed" if use_bed else "bam", input_path,
+    )
 
     controls = merge_controls(genome, user_controls_path, replace=replace_controls)
     regions = get_regions(genome)
 
-    analysis = SampleAnalysis(sample_id=sample_id, bam_path=bam_path, genome=genome)
+    analysis = SampleAnalysis(
+        sample_id=sample_id,
+        input_path=input_path,
+        genome=genome,
+        input_mode="bed" if use_bed else "bam",
+    )
+
+    # Pre-load BED files once (avoids re-reading large files per region)
+    bed_reader = None
+    if use_bed:
+        from methreport.bed_reader import BedMethylReader
+        bed_reader = BedMethylReader(
+            unphased_path=bed_unphased,
+            hp1_path=bed_hp1,
+            hp2_path=bed_hp2,
+        )
 
     for region in regions:
         log.info("  Processing region: %s", region.label)
-        meth = extract_region_methylation(
-            bam_path=bam_path,
-            region=region,
-            call_threshold=call_threshold,
-            min_coverage=min_coverage,
-        )
+
+        # --- Extract methylation ---
+        if use_bed:
+            meth = bed_reader.extract(region, min_coverage=min_coverage)
+        else:
+            meth = extract_region_methylation(
+                bam_path=bam_path,
+                region=region,
+                call_threshold=call_threshold,
+                min_coverage=min_coverage,
+            )
+
+        # --- Reference ranges (informative CpGs only) ---
         ref = compute_reference_ranges(controls, region.name)
-        flag = flag_result(meth["unphased"].mean_methylation_pct)
+
+        # --- Z-score based flagging ---
+        flag, z_score, n_informative = _compute_flag(meth["unphased"], ref)
 
         result = RegionResult(
             region=region,
@@ -140,16 +213,22 @@ def run_analysis(
             hp2=meth["hp2"],
             reference=ref,
             flag=flag,
+            z_score=z_score,
+            n_informative=n_informative,
         )
         analysis.results.append(result)
+
+        meth_val = result.mean_methylation
         log.info(
-            "    → %.1f%% methylation (%s), %d CpGs, coverage %.1fx",
-            result.mean_methylation if not np.isnan(result.mean_methylation) else 0,
+            "    → %.1f%% methylation  flag=%s  z=%.2f  informative_cpg=%d/%d  cov=%.1f×",
+            meth_val if not np.isnan(meth_val) else 0,
             flag,
+            z_score if not np.isnan(z_score) else 0,
+            n_informative,
             result.unphased.n_cpg,
             result.unphased.mean_coverage,
         )
 
     n_flagged = len(analysis.flagged_regions)
-    log.info("Analysis complete. %d/%d regions flagged.", n_flagged, len(regions))
+    log.info("Analysis complete: %d/%d regions flagged.", n_flagged, len(regions))
     return analysis

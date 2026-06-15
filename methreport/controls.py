@@ -131,12 +131,9 @@ def compute_reference_ranges(
 
 
 def flag_result(mean_methylation: float) -> str:
-    """Return a flag string for a sample's mean methylation.
+    """Return a flag string using fixed thresholds (fallback when controls are absent).
 
-    "LOW"    — likely loss of methylation at normally-methylated allele
-    "HIGH"   — likely gain of methylation
-    "NORMAL" — within expected range
-    "NA"     — no data
+    Prefer z_score_flag() when per-position control stats are available.
     """
     if np.isnan(mean_methylation):
         return "NA"
@@ -145,3 +142,75 @@ def flag_result(mean_methylation: float) -> str:
     if mean_methylation > FLAG_HIGH:
         return "HIGH"
     return "NORMAL"
+
+
+# Minimum number of informative CpGs required for a z-score flag to be trusted
+MIN_INFORMATIVE_CPG = 3
+
+# z-score magnitude that triggers a flag (~95th percentile under normal distribution)
+Z_FLAG_THRESHOLD = 2.0
+
+# Minimum control SD to avoid division by near-zero; corresponds to ~2% methylation
+# measurement noise, which is realistic for nanopore at ≥10× coverage
+_MIN_SD = 2.0
+
+
+def z_score_flag(
+    sample_df: pd.DataFrame,
+    reference_df: pd.DataFrame,
+    min_informative: int = MIN_INFORMATIVE_CPG,
+) -> tuple[str, float, int]:
+    """Flag a region using per-CpG z-scores against the control distribution.
+
+    Only positions present in both the sample and the reference (i.e., positions
+    where controls show an imprinted 40-60% pattern) are used. This avoids
+    including uninformative CpGs that dilute the signal.
+
+    Parameters
+    ----------
+    sample_df:
+        DataFrame with columns [position, methylation_pct] from RegionMethylation.
+    reference_df:
+        Output of compute_reference_ranges() — columns [position, mean, sd, ...].
+    min_informative:
+        Minimum number of overlapping CpG positions needed to trust the z-score.
+        Falls back to fixed-threshold flagging if fewer positions overlap.
+
+    Returns
+    -------
+    (flag, mean_z, n_informative)
+        flag          : "NORMAL" | "LOW" | "HIGH" | "NA"
+        mean_z        : mean z-score across informative positions (nan if not computed)
+        n_informative : number of positions used for the z-score calculation
+    """
+    if reference_df.empty or sample_df.empty:
+        return "NA", float("nan"), 0
+
+    merged = sample_df[["position", "methylation_pct"]].merge(
+        reference_df[["position", "mean", "sd"]],
+        on="position",
+        how="inner",
+    )
+    n_informative = len(merged)
+
+    if n_informative == 0:
+        # No positional overlap at all — cannot make a meaningful comparison
+        return "NA", float("nan"), 0
+
+    if n_informative < min_informative:
+        # Too few positions for a reliable z-score — use fixed threshold on what we have
+        mean_meth = merged["methylation_pct"].mean()
+        return flag_result(mean_meth), float("nan"), n_informative
+
+    # Clip SD to a minimum to prevent extreme z-scores from near-zero control variance
+    sd_clipped = merged["sd"].clip(lower=_MIN_SD)
+    merged = merged.copy()
+    merged["z"] = (merged["methylation_pct"] - merged["mean"]) / sd_clipped
+
+    mean_z = float(merged["z"].mean())
+
+    if mean_z < -Z_FLAG_THRESHOLD:
+        return "LOW", mean_z, n_informative
+    if mean_z > Z_FLAG_THRESHOLD:
+        return "HIGH", mean_z, n_informative
+    return "NORMAL", mean_z, n_informative
