@@ -181,13 +181,14 @@ def _extract_via_modkit(
         _write_region_bed(genome, region_bed, use_chr=use_chr)
 
         # Shared flags
+        # Note: modkit 0.6+ has no --no-header flag; default output has no header.
+        # Our _load_bed already skips any '#'-prefixed header lines defensively.
         base = [
             mk, "pileup", str(bam_path),
             "--filter-threshold", str(call_threshold),
             "--combine-strands",   # merge + / − strand CpG calls
             "--cpg",               # restrict to CpG dinucleotides
             "--include-bed", str(region_bed),
-            "--no-header",
         ]
 
         # ── Unphased ──

@@ -24,9 +24,13 @@ log = logging.getLogger(__name__)
 IMPRINT_MIN = 40.0
 IMPRINT_MAX = 60.0
 
-# Abnormal thresholds for flagging sample results
-FLAG_LOW = 30.0
-FLAG_HIGH = 75.0
+# Abnormal thresholds for fixed-threshold flagging (last-resort fallback only —
+# z-score and phased allelic logic take priority when available).
+# These are intentionally conservative to avoid false positives when controls
+# and phasing are both absent. Coverage artefacts can lower the unphased mean
+# to ~35% in normal samples, so we only flag at clearly extreme values.
+FLAG_LOW = 20.0
+FLAG_HIGH = 80.0
 
 
 def load_bundled_controls(genome: str) -> pd.DataFrame:

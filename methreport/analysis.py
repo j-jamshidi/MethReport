@@ -92,19 +92,61 @@ class SampleAnalysis:
         return [r for r in self.results if r.flag in ("LOW", "HIGH")]
 
 
+_MIN_PHASED_CPG = 5   # per-haplotype CpG minimum for phased flagging
+_HP_HIGH_THRESH = 65.0  # clearly methylated allele
+_HP_LOW_THRESH  = 35.0  # clearly unmethylated allele
+
+
 def _compute_flag(
     unphased: RegionMethylation,
+    hp1: RegionMethylation,
+    hp2: RegionMethylation,
     reference: pd.DataFrame,
 ) -> tuple[str, float, int]:
-    """Compute flag using z-score if reference is available, else fixed threshold."""
-    if reference.empty:
-        return flag_result(unphased.mean_methylation_pct), float("nan"), 0
+    """Compute flag using the best available evidence, in priority order:
 
-    sample_df = unphased.to_dataframe()
-    if sample_df.empty:
+    1. z-score against per-position controls  (most sensitive, avoids fixed cutoffs)
+    2. Phased allelic symmetry (HP1 vs HP2)   (reliable when phased, no controls needed)
+    3. Fixed threshold on unphased mean        (last resort — low confidence)
+
+    For imprinted regions, the expected pattern is strong allelic asymmetry:
+    one haplotype ~75-100% methylated, the other ~0-25%. Any sample where BOTH
+    haplotypes are high (biallelic methylation) or BOTH are low (biallelic
+    unmethylation) is flagged. If one is clearly high and the other clearly low,
+    the region is NORMAL regardless of the unphased mean.
+    """
+    # ── Strategy 1: z-score vs controls ────────────────────────────────────
+    if not reference.empty:
+        sample_df = unphased.to_dataframe()
+        if not sample_df.empty:
+            return z_score_flag(sample_df, reference)
+
+    # ── Strategy 2: phased allelic symmetry ────────────────────────────────
+    if hp1.n_cpg >= _MIN_PHASED_CPG and hp2.n_cpg >= _MIN_PHASED_CPG:
+        m1 = hp1.mean_methylation_pct
+        m2 = hp2.mean_methylation_pct
+        if not (np.isnan(m1) or np.isnan(m2)):
+            hp_high = max(m1, m2)
+            hp_low  = min(m1, m2)
+
+            if hp_high >= _HP_HIGH_THRESH and hp_low <= _HP_LOW_THRESH:
+                # Canonical imprinting pattern: one allele methylated, one not
+                return "NORMAL", float("nan"), 0
+
+            if hp_low >= _HP_HIGH_THRESH:
+                # Both alleles heavily methylated
+                return "HIGH", float("nan"), 0
+
+            if hp_high <= _HP_LOW_THRESH:
+                # Both alleles unmethylated
+                return "LOW", float("nan"), 0
+            # Ambiguous phasing — fall through to fixed threshold
+
+    # ── Strategy 3: fixed threshold (last resort) ───────────────────────────
+    mean_meth = unphased.mean_methylation_pct
+    if np.isnan(mean_meth) or unphased.n_cpg == 0:
         return "NA", float("nan"), 0
-
-    return z_score_flag(sample_df, reference)
+    return flag_result(mean_meth), float("nan"), 0
 
 
 def run_analysis(
@@ -209,7 +251,9 @@ def run_analysis(
         ref = compute_reference_ranges(controls, region.name)
 
         # --- Z-score based flagging ---
-        flag, z_score, n_informative = _compute_flag(meth["unphased"], ref)
+        flag, z_score, n_informative = _compute_flag(
+            meth["unphased"], meth["hp1"], meth["hp2"], ref
+        )
 
         result = RegionResult(
             region=region,
