@@ -237,8 +237,44 @@ def _extract_via_modkit(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# pysam fallback with strand-normalisation fix
+# pysam fallback with strand-normalisation fix + full coverage counting
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _read_cpg_positions(read: pysam.AlignedSegment) -> dict[int, None]:
+    """Return canonical CpG positions covered by this read, from its sequence.
+
+    Scans the read query sequence for 'CG' dinucleotides.  This works for
+    both strand orientations:
+
+      Forward read: seq[q]='C', seq[q+1]='G'
+        → C at query pos q maps to ref pos r → canonical CpG position = r
+
+      Reverse read: seq[q]='C', seq[q+1]='G'
+        → This 'C' is the complement of the reference G (at ref r).
+          The companion reference C is at r-1 → canonical CpG position = r-1
+
+    The reverse-strand result is the same formula with a -1 shift —
+    identical to the strand-normalisation fix applied to MM/ML calls.
+    """
+    seq = read.query_sequence
+    if seq is None or len(seq) < 2:
+        return {}
+
+    is_rev = read.is_reverse
+    q2r: dict[int, int] = {
+        qp: rp
+        for qp, rp in read.get_aligned_pairs(matches_only=True)
+        if rp is not None
+    }
+
+    cpgs: dict[int, None] = {}
+    for qp in range(len(seq) - 1):
+        if seq[qp] == "C" and seq[qp + 1] == "G":
+            rp = q2r.get(qp)
+            if rp is not None:
+                cpgs[rp - 1 if is_rev else rp] = None
+    return cpgs
+
 
 def _extract_via_pysam(
     bam_path: Path,
@@ -246,14 +282,27 @@ def _extract_via_pysam(
     min_coverage: int,
     call_threshold: float,
 ) -> dict[str, dict[str, RegionMethylation]]:
-    """Strand-aware MM/ML parser — corrects reverse-strand CpG position by −1.
+    """Strand-aware MM/ML parser with complete coverage counting.
 
-    For a CpG at + strand position p:
-      forward-strand read → MM/ML reports ref pos p       (correct)
-      reverse-strand read → MM/ML reports ref pos p+1    (off by one)
+    Coverage problem with naive MM/ML parsing
+    -----------------------------------------
+    Dorado (and other callers) typically use 'C+m?' convention: only cytosines
+    with a NON-ZERO modification probability get an entry in the MM tag.  A fully
+    unmethylated read may have an empty MM tag for 5mC, so _parse_mm_ml_tags()
+    returns {} and the read is silently skipped.  For a 50% imprinted region this
+    drops the unmethylated-allele reads entirely → coverage appears at ~50% of
+    IGV depth.
 
-    Fix: subtract 1 from all ref positions on reverse-strand reads.
-    This merges both strands to position p, matching modkit --combine-strands.
+    Fix
+    ---
+    For every primary read that has MM/ML tags, scan the read sequence for 'CG'
+    dinucleotides to find ALL CpG positions the read physically covers.  Positions
+    absent from the MM tag are treated as unmethylated (the basecaller processed
+    them but assigned zero probability — they were simply omitted to save space).
+    Explicit MM/ML calls take priority over this default.
+
+    Strand normalisation is also applied: reverse-strand CpG calls are at ref
+    position p+1 in the MM tag (complement base), shifted to p by subtracting 1.
     """
     regions = get_regions(genome)
     results: dict[str, dict[str, RegionMethylation]] = {
@@ -290,6 +339,8 @@ def _extract_via_pysam(
         for read in reads:
             if read.is_unmapped or read.is_secondary or read.is_supplementary:
                 continue
+            if not (read.has_tag("MM") and read.has_tag("ML")):
+                continue  # No modification tags at all — can't determine status
             n_reads += 1
 
             hp = "unphased"
@@ -297,20 +348,27 @@ def _extract_via_pysam(
                 v = int(read.get_tag("HP"))
                 hp = "hp1" if v == 1 else "hp2" if v == 2 else "unphased"
 
+            # Explicit methylation calls from MM/ML
             mod_calls = _parse_mm_ml_tags(read, call_threshold)
-            if not mod_calls:
-                continue
-            n_with_mods += 1
+            if mod_calls:
+                n_with_mods += 1
 
+            # Normalise strand positions of explicit calls
             is_rev = read.is_reverse
-            for raw_pos, is_methyl in mod_calls.items():
-                # Strand normalisation: reverse-strand C → shift to CpG + strand pos
-                ref_pos = raw_pos - 1 if is_rev else raw_pos
+            explicit: dict[int, bool] = {
+                (raw - 1 if is_rev else raw): is_methyl
+                for raw, is_methyl in mod_calls.items()
+            }
 
+            # All CpG positions covered by this read (from sequence scanning)
+            # Positions absent from explicit calls default to unmethylated
+            all_calls: dict[int, bool] = {pos: False for pos in _read_cpg_positions(read)}
+            all_calls.update(explicit)  # explicit MM/ML calls win
+
+            targets = ["unphased"] if hp == "unphased" else ["unphased", hp]
+            for ref_pos, is_methyl in all_calls.items():
                 if not (region.start <= ref_pos < region.end):
                     continue
-
-                targets = ["unphased"] if hp == "unphased" else ["unphased", hp]
                 for h in targets:
                     c = counts[region.name][h]
                     if ref_pos not in c:
@@ -320,7 +378,7 @@ def _extract_via_pysam(
 
         if n_reads > 0:
             log.debug(
-                "%s: %d reads, %d with mods (%.0f%%)",
+                "%s: %d reads, %d with explicit mod calls (%.0f%%)",
                 region.name, n_reads, n_with_mods, 100 * n_with_mods / n_reads,
             )
 
