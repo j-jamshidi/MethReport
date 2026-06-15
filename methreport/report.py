@@ -362,22 +362,33 @@ def _build_summary_table(analysis: SampleAnalysis) -> str:
         meth = r.mean_methylation
         hp1 = r.mean_methylation_hp1
         hp2 = r.mean_methylation_hp2
+        z   = r.z_score
         meth_str = f"{meth:.1f}%" if not np.isnan(meth) else "—"
         hp1_str  = f"{hp1:.1f}%"  if not np.isnan(hp1)  else "—"
         hp2_str  = f"{hp2:.1f}%"  if not np.isnan(hp2)  else "—"
-        badge = FLAG_BADGE_HTML.get(r.flag, FLAG_BADGE_HTML["NA"])
-        row_cls = "row-flagged" if r.flag in ("LOW", "HIGH") else ""
+        z_str    = f"{z:+.2f}"    if not np.isnan(z)     else "—"
+        z_style  = ""
+        if not np.isnan(z):
+            if abs(z) >= 2.0:
+                z_style = 'style="color:#DC2626;font-weight:700;"'
+            elif abs(z) >= 1.5:
+                z_style = 'style="color:#D97706;font-weight:600;"'
+        badge    = FLAG_BADGE_HTML.get(r.flag, FLAG_BADGE_HTML["NA"])
+        row_cls  = "row-flagged" if r.flag in ("LOW", "HIGH") else ""
         meth_style = _meth_cell_style(meth if not np.isnan(meth) else None)
+        # informative CpG tooltip
+        info_title = f'title="{r.n_informative} of {r.unphased.n_cpg} CpGs overlap control-defined informative positions"'
         rows.append(f"""
         <tr class="{row_cls}">
           <td class="td-region"><strong>{r.region.label}</strong></td>
           <td>{r.region.disorder}</td>
           <td class="td-mono">{r.region.chrom}:{r.region.start:,}–{r.region.end:,}</td>
-          <td class="td-num">{r.unphased.n_cpg}</td>
+          <td class="td-num" {info_title}>{r.unphased.n_cpg} <span class="cpg-info">({r.n_informative})</span></td>
           <td class="td-num">{r.unphased.mean_coverage:.0f}×</td>
           <td class="td-num" {meth_style}>{meth_str}</td>
           <td class="td-num">{hp1_str}</td>
           <td class="td-num">{hp2_str}</td>
+          <td class="td-num" {z_style}>{z_str}</td>
           <td>{badge}</td>
         </tr>""")
     return "\n".join(rows)
@@ -1019,6 +1030,7 @@ tbody tr:hover td {{ background: #F8FAFF; }}
 .meta-table {{ font-size: 0.82rem; }}
 .meta-table td {{ padding: 8px 16px; }}
 .meta-key {{ color: var(--text-2); width: 200px; font-weight: 500; }}
+.cpg-info {{ color: var(--text-3); font-size: 0.78rem; }}
 
 /* ── Footer ──────────────────────────────────────────────────────────────── */
 .report-footer {{
@@ -1111,11 +1123,12 @@ tbody tr:hover td {{ background: #F8FAFF; }}
               <th>Region</th>
               <th>Disorder</th>
               <th>Coordinates</th>
-              <th style="text-align:right">CpGs</th>
+              <th style="text-align:right" title="Total CpGs (informative CpGs used for z-score)">CpGs (info.)</th>
               <th style="text-align:right">Coverage</th>
               <th style="text-align:right">Methylation</th>
               <th style="text-align:right">HP1</th>
               <th style="text-align:right">HP2</th>
+              <th style="text-align:right" title="Mean z-score vs per-position control distribution. |z|≥2 triggers flag.">z-score</th>
               <th>Status</th>
             </tr>
           </thead>
