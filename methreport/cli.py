@@ -17,11 +17,13 @@ app = typer.Typer(
     name="methreport",
     help=(
         "Clinical-grade DNA methylation imprinting disorder reporter.\n\n"
-        "Recommended workflow (BEDMethyl from modkit — fewer false positives):\n\n"
+        "Direct BAM input (phased or unphased) — recommended:\n\n"
+        "  methreport run --bam sample.bam --ref t2t\n\n"
+        "  Uses modkit internally for accurate strand-merging and HP splitting.\n"
+        "  Falls back to internal MM/ML parser if modkit is not installed.\n\n"
+        "Pre-computed BEDMethyl input (from modkit pileup):\n\n"
         "  methreport run --bed sample.unphased.bed --bed-hp1 sample.hp1.bed "
-        "--bed-hp2 sample.hp2.bed --ref t2t\n\n"
-        "modbam fallback (direct BAM reading):\n\n"
-        "  methreport run --bam sample.bam --ref t2t"
+        "--bed-hp2 sample.hp2.bed --ref t2t"
     ),
     add_completion=False,
     pretty_exceptions_enable=False,
@@ -56,7 +58,7 @@ def run(
     ),
     bam: Optional[Path] = typer.Option(
         None, "--bam",
-        help="Indexed modbam file. Use when BEDMethyl is not available.",
+        help="Indexed modbam file. Supports phased BAM (HP tags). Uses modkit internally if available.",
     ),
     call_threshold: float = typer.Option(
         0.5, "--call-threshold",
@@ -130,10 +132,18 @@ def run(
     ))
 
     if not use_bed:
-        console.print(
-            "[yellow]Note:[/yellow] BEDMethyl input ([cyan]--bed[/cyan]) is recommended over modbam "
-            "to avoid strand-merging artefacts. See README for modkit commands."
-        )
+        from methreport.modbam_pileup import modkit_version, MODKIT_MIN_VERSION
+        mk_ver = modkit_version()
+        if mk_ver and mk_ver >= MODKIT_MIN_VERSION:
+            mk_str = ".".join(map(str, mk_ver))
+            console.print(
+                f"[dim]Using modkit v{mk_str} for strand-aware methylation extraction.[/dim]"
+            )
+        else:
+            console.print(
+                "[yellow]Note:[/yellow] modkit not found — using internal MM/ML parser with "
+                "strand-normalisation fix. Install modkit for best accuracy."
+            )
 
     # --- BAM validation (modbam mode only) ---
     bam_info: dict = {}
@@ -224,11 +234,27 @@ def validate(
     if not bam.exists():
         console.print(f"[red]Not found:[/red] {bam}")
         raise typer.Exit(1)
+
     from methreport.reader import validate_bam
+    from methreport.modbam_pileup import bam_has_hp_tags, modkit_version, MODKIT_MIN_VERSION
+
     info = validate_bam(bam)
-    console.print(f"[bold]BAM:[/bold]      {info['path']}")
-    console.print(f"[bold]Contigs:[/bold]  {info['n_contigs']} total, first: {', '.join(info['contigs'])}")
-    console.print(f"[bold]Mod tags:[/bold] {'[green]Yes — MM/ML present[/green]' if info['has_mod_tags'] else '[red]No MM/ML tags found[/red]'}")
+    has_hp = bam_has_hp_tags(bam)
+    mk_ver = modkit_version()
+
+    console.print(f"[bold]BAM:[/bold]          {info['path']}")
+    console.print(f"[bold]Contigs:[/bold]      {info['n_contigs']} total, first: {', '.join(info['contigs'])}")
+    console.print(f"[bold]Mod tags:[/bold]     {'[green]Yes — MM/ML present[/green]' if info['has_mod_tags'] else '[red]No MM/ML tags found[/red]'}")
+    console.print(f"[bold]HP (phased):[/bold]  {'[green]Yes — HP tags detected[/green]' if has_hp else '[dim]No HP tags (unphased)[/dim]'}")
+
+    if mk_ver and mk_ver >= MODKIT_MIN_VERSION:
+        mk_str = ".".join(map(str, mk_ver))
+        console.print(f"[bold]modkit:[/bold]       [green]v{mk_str} — will be used for strand-aware extraction[/green]")
+    elif mk_ver:
+        mk_str = ".".join(map(str, mk_ver))
+        console.print(f"[bold]modkit:[/bold]       [yellow]v{mk_str} (< 0.2.0) — upgrade for best accuracy[/yellow]")
+    else:
+        console.print("[bold]modkit:[/bold]       [yellow]Not found — internal MM/ML parser will be used[/yellow]")
 
 
 @app.command("list-regions")

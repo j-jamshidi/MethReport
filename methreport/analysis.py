@@ -19,7 +19,6 @@ from methreport.reader import (
     DEFAULT_CALL_THRESHOLD,
     DEFAULT_MIN_COVERAGE,
     RegionMethylation,
-    extract_region_methylation,
 )
 from methreport.regions import DMRegion, get_regions
 
@@ -176,14 +175,25 @@ def run_analysis(
         input_mode="bed" if use_bed else "bam",
     )
 
-    # Pre-load BED files once (avoids re-reading large files per region)
+    # Pre-extract all regions at once (more efficient, enables strand-aware BAM pileup)
     bed_reader = None
+    bam_all_regions: dict | None = None
+
     if use_bed:
         from methreport.bed_reader import BedMethylReader
         bed_reader = BedMethylReader(
             unphased_path=bed_unphased,
             hp1_path=bed_hp1,
             hp2_path=bed_hp2,
+        )
+    else:
+        from methreport.modbam_pileup import extract_from_bam
+        log.info("Extracting methylation from BAM (strand-normalised, HP-aware)...")
+        bam_all_regions = extract_from_bam(
+            bam_path=bam_path,
+            genome=genome,
+            min_coverage=min_coverage,
+            call_threshold=call_threshold,
         )
 
     for region in regions:
@@ -193,12 +203,7 @@ def run_analysis(
         if use_bed:
             meth = bed_reader.extract(region, min_coverage=min_coverage)
         else:
-            meth = extract_region_methylation(
-                bam_path=bam_path,
-                region=region,
-                call_threshold=call_threshold,
-                min_coverage=min_coverage,
-            )
+            meth = bam_all_regions[region.name]
 
         # --- Reference ranges (informative CpGs only) ---
         ref = compute_reference_ranges(controls, region.name)
