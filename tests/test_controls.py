@@ -45,8 +45,14 @@ def test_compute_reference_ranges_empty_region():
 
 def test_flag_result():
     assert flag_result(50.0) == "NORMAL"
-    assert flag_result(20.0) == "LOW"
+    assert flag_result(10.0) == "LOW"
     assert flag_result(90.0) == "HIGH"
     assert flag_result(float("nan")) == "NA"
-    assert flag_result(30.0) == "NORMAL"   # boundary: 30.0 is not < 30
-    assert flag_result(29.9) == "LOW"
+    # Boundaries: FLAG_LOW=20.0, FLAG_HIGH=80.0
+    assert flag_result(20.0) == "NORMAL"   # 20.0 is not < 20.0
+    assert flag_result(19.9) == "LOW"
+    assert flag_result(80.0) == "NORMAL"   # 80.0 is not > 80.0
+    assert flag_result(80.1) == "HIGH"
+    # Values previously flagged at old 30% threshold should now be NORMAL
+    assert flag_result(28.0) == "NORMAL"
+    assert flag_result(29.9) == "NORMAL"
