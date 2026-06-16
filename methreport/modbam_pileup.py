@@ -143,22 +143,16 @@ def _run_modkit(cmd: list[str], label: str, timeout: int = 300) -> bool:
 def _find_partition_file(search_dir: Path, hp_value: str) -> Path | None:
     """Locate the modkit partition output file for the given HP value.
 
-    Searches recursively so that modkit versions that write into a subdirectory
-    (rather than directly into the prefix directory) are handled correctly.
-
-    modkit typically names output as {prefix}_{value}.bed or {value}.bed.
+    modkit names partition outputs as {prefix}_{value}.bed.
+    We search flexibly to handle minor naming differences across versions.
     """
-    # Exact suffix match, recursive
-    for p in search_dir.rglob(f"*_{hp_value}.bed"):
+    # Exact match first
+    for p in search_dir.glob(f"*_{hp_value}.bed"):
         if "ungrouped" not in p.name:
             return p
-    # Value as filename stem (e.g. <dir>/1.bed)
-    for p in search_dir.rglob(f"{hp_value}.bed"):
-        if "ungrouped" not in p.name:
-            return p
-    # Looser: any .bed file whose stem tokens contain the hp_value
-    for p in sorted(search_dir.rglob("*.bed")):
-        if "ungrouped" not in p.name and hp_value in p.stem.replace("-", "_").split("_"):
+    # Looser match
+    for p in search_dir.glob("*.bed"):
+        if "ungrouped" not in p.name and hp_value in p.stem.split("_"):
             return p
     return None
 
@@ -215,54 +209,29 @@ def _extract_via_modkit(
                 "phased pileup",
             )
             if ok:
-                # Log every file modkit created so naming issues are visible
-                created = sorted(tmpdir.rglob("*.bed"))
-                log.debug(
-                    "modkit created %d BED file(s): %s",
-                    len(created),
-                    ", ".join(p.name for p in created),
-                )
-
                 p1 = _find_partition_file(tmpdir, "1")
                 p2 = _find_partition_file(tmpdir, "2")
                 if p1:
                     hp1_df = _load_bed(p1)
-                    log.info("modkit HP1 (%s): %d sites", p1.name, len(hp1_df))
-                else:
-                    log.warning(
-                        "HP1 partition file not found in %s. "
-                        "Files present: %s",
-                        tmpdir,
-                        ", ".join(p.name for p in created) or "(none)",
-                    )
+                    log.info("modkit HP1: %d sites", len(hp1_df))
                 if p2:
                     hp2_df = _load_bed(p2)
-                    log.info("modkit HP2 (%s): %d sites", p2.name, len(hp2_df))
-                else:
+                    log.info("modkit HP2: %d sites", len(hp2_df))
+                if not p1 and not p2:
                     log.warning(
-                        "HP2 partition file not found in %s. "
-                        "Files present: %s",
-                        tmpdir,
-                        ", ".join(p.name for p in created) or "(none)",
+                        "modkit partition output not found in %s — "
+                        "BAM may not be haplotagged despite HP reads detected", tmpdir
                     )
         else:
             log.info("No HP tags detected — skipping phased pileup")
-
-        # HP tracks have ~half the reads of the unphased track, so apply a
-        # proportionally lower coverage threshold to avoid dropping entire
-        # haplotypes at modest sequencing depth (e.g. 10–15× total WGS).
-        min_cov_hp = max(1, (min_coverage + 1) // 2)
-        log.debug(
-            "Coverage thresholds: unphased=%d, HP1/HP2=%d", min_coverage, min_cov_hp
-        )
 
         # ── Build result dict ──
         results: dict[str, dict[str, RegionMethylation]] = {}
         for region in regions:
             results[region.name] = {
                 "unphased": extract_region_from_bed(unphased_df, region, "unphased", min_coverage),
-                "hp1":      extract_region_from_bed(hp1_df,     region, "hp1",      min_cov_hp),
-                "hp2":      extract_region_from_bed(hp2_df,     region, "hp2",      min_cov_hp),
+                "hp1":      extract_region_from_bed(hp1_df,     region, "hp1",      min_coverage),
+                "hp2":      extract_region_from_bed(hp2_df,     region, "hp2",      min_coverage),
             }
     return results
 
@@ -357,15 +326,13 @@ def _extract_via_pysam(
 
     bam.close()
 
-    min_cov_hp = max(1, (min_coverage + 1) // 2)
     for region in regions:
         for hp in ("unphased", "hp1", "hp2"):
-            threshold = min_coverage if hp == "unphased" else min_cov_hp
             sites = [
                 CpGSite(chrom=region.chrom, position=pos,
                         n_total=c[0], n_methyl=c[1])
                 for pos, c in sorted(counts[region.name][hp].items())
-                if c[0] >= threshold
+                if c[0] >= min_coverage
             ]
             results[region.name][hp] = RegionMethylation(
                 region=region, haplotype=hp, sites=sites
