@@ -72,6 +72,8 @@ class RegionResult:
             "methylation_pct_hp2": round(hp2, 1) if not np.isnan(hp2) else None,
             "z_score": round(self.z_score, 2) if not np.isnan(self.z_score) else None,
             "flag": self.flag,
+            "unreliable": self.region.unreliable,
+            "unreliable_reason": self.region.unreliable_reason if self.region.unreliable else "",
         }
 
 
@@ -89,7 +91,11 @@ class SampleAnalysis:
 
     @property
     def flagged_regions(self) -> list[RegionResult]:
-        return [r for r in self.results if r.flag in ("LOW", "HIGH")]
+        return [r for r in self.results if r.flag in ("LOW", "HIGH") and not r.region.unreliable]
+
+    @property
+    def unreliable_regions(self) -> list[RegionResult]:
+        return [r for r in self.results if r.region.unreliable]
 
 
 _MIN_PHASED_CPG = 5   # per-haplotype CpG minimum for phased flagging
@@ -250,10 +256,13 @@ def run_analysis(
         # --- Reference ranges (informative CpGs only) ---
         ref = compute_reference_ranges(controls, region.name)
 
-        # --- Z-score based flagging ---
-        flag, z_score, n_informative = _compute_flag(
-            meth["unphased"], meth["hp1"], meth["hp2"], ref
-        )
+        # --- Flagging ---
+        if region.unreliable:
+            flag, z_score, n_informative = "UNRELIABLE", float("nan"), 0
+        else:
+            flag, z_score, n_informative = _compute_flag(
+                meth["unphased"], meth["hp1"], meth["hp2"], ref
+            )
 
         result = RegionResult(
             region=region,

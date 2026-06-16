@@ -16,9 +16,8 @@ class DMRegion:
     end: int
     disorder: str
     expected_methylation: str   # "maternal" | "paternal" | "biallelic"
-    # For imprinted DMRs: which allele is methylated in normal controls
-    # maternal = methylated on maternal allele (~50% in unphased)
-    # paternal = methylated on paternal allele (~50% in unphased)
+    unreliable: bool = False    # True → known mapping/interpretation artefact; never flagged
+    unreliable_reason: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -60,6 +59,13 @@ T2T_REGIONS: list[DMRegion] = [
         end=2090906,
         disorder="BWS/SRS",
         expected_methylation="paternal",
+        unreliable=True,
+        unreliable_reason=(
+            "This region overlaps segmental duplications and repeat elements "
+            "that cause systematic read mismapping even with long reads. "
+            "Methylation values are unreliable and should not be used for "
+            "clinical interpretation without orthogonal confirmation."
+        ),
     ),
     DMRegion(
         name="KCNQ1OT1_TSS_DMR",
@@ -192,6 +198,13 @@ HG38_REGIONS: list[DMRegion] = [
         end=2003229,
         disorder="BWS/SRS",
         expected_methylation="paternal",
+        unreliable=True,
+        unreliable_reason=(
+            "This region overlaps segmental duplications and repeat elements "
+            "that cause systematic read mismapping even with long reads. "
+            "Methylation values are unreliable and should not be used for "
+            "clinical interpretation without orthogonal confirmation."
+        ),
     ),
     DMRegion(
         name="KCNQ1OT1_TSS_DMR",
