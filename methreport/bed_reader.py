@@ -157,15 +157,9 @@ class BedMethylReader:
         region: DMRegion,
         min_coverage: int = 5,
     ) -> dict[str, RegionMethylation]:
-        """Return {unphased, hp1, hp2} RegionMethylation for a DMR.
-
-        HP tracks use a lower coverage threshold (ceil(min_coverage / 2)) because
-        phasing splits reads across two haplotypes, roughly halving per-HP depth.
-        """
-        min_cov_hp = max(1, (min_coverage + 1) // 2)
-        thresholds = {"unphased": min_coverage, "hp1": min_cov_hp, "hp2": min_cov_hp}
+        """Return {unphased, hp1, hp2} RegionMethylation for a DMR."""
         return {
-            hp: extract_region_from_bed(self._dfs[hp], region, hp, thresholds[hp])
+            hp: extract_region_from_bed(self._dfs[hp], region, hp, min_coverage)
             for hp in ("unphased", "hp1", "hp2")
         }
 
