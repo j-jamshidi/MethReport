@@ -32,10 +32,11 @@ COLORS = {
 }
 
 FLAG_BADGE_HTML = {
-    "NORMAL": '<span class="badge badge-normal">Normal</span>',
-    "LOW":    '<span class="badge badge-low">Low ↓</span>',
-    "HIGH":   '<span class="badge badge-high">High ↑</span>',
-    "NA":     '<span class="badge badge-na">No data</span>',
+    "NORMAL":     '<span class="badge badge-normal">Normal</span>',
+    "LOW":        '<span class="badge badge-low">Low ↓</span>',
+    "HIGH":       '<span class="badge badge-high">High ↑</span>',
+    "NA":         '<span class="badge badge-na">No data</span>',
+    "UNRELIABLE": '<span class="badge badge-unreliable">⚠ Unreliable</span>',
 }
 
 # ---------------------------------------------------------------------------
@@ -374,7 +375,12 @@ def _build_summary_table(analysis: SampleAnalysis) -> str:
             elif abs(z) >= 1.5:
                 z_style = 'style="color:#D97706;font-weight:600;"'
         badge    = FLAG_BADGE_HTML.get(r.flag, FLAG_BADGE_HTML["NA"])
-        row_cls  = "row-flagged" if r.flag in ("LOW", "HIGH") else ""
+        if r.flag in ("LOW", "HIGH"):
+            row_cls = "row-flagged"
+        elif r.flag == "UNRELIABLE":
+            row_cls = "row-unreliable"
+        else:
+            row_cls = ""
         meth_style = _meth_cell_style(meth if not np.isnan(meth) else None)
         # informative CpG tooltip
         info_title = f'title="{r.n_informative} of {r.unphased.n_cpg} CpGs overlap control-defined informative positions"'
@@ -421,9 +427,24 @@ def _build_disorder_sections(
 
         cards_html = ""
         for p in plots:
-            flag_cls = "region-card-flagged" if p["flag"] in ("LOW", "HIGH") else ""
+            if p["flag"] in ("LOW", "HIGH"):
+                flag_cls = "region-card-flagged"
+            elif p["flag"] == "UNRELIABLE":
+                flag_cls = "region-card-unreliable"
+            else:
+                flag_cls = ""
             badge = FLAG_BADGE_HTML.get(p["flag"], FLAG_BADGE_HTML["NA"])
             phased_tag = '<span class="phased-tag">Phased</span>' if p["is_phased"] else ""
+            unreliable_banner = ""
+            if p.get("unreliable") and p.get("unreliable_reason"):
+                unreliable_banner = f"""
+            <div class="unreliable-banner">
+              <span class="unreliable-icon">⚠</span>
+              <div>
+                <div class="unreliable-title">Region flagged as unreliable</div>
+                <div class="unreliable-reason">{p["unreliable_reason"]}</div>
+              </div>
+            </div>"""
             cards_html += f"""
           <div class="region-card {flag_cls}" id="region-{p['name']}">
             <div class="region-card-header">
@@ -436,6 +457,7 @@ def _build_disorder_sections(
                 {p['n_cpg']} CpGs &nbsp;·&nbsp; {p['mean_cov']}× coverage &nbsp;·&nbsp; {p['mean_meth']}% methylation
               </div>
             </div>
+            {unreliable_banner}
             <div class="region-plot" id="plot-{p['name']}"></div>
           </div>"""
 
@@ -476,6 +498,8 @@ def generate_report(
             "mean_cov": f"{result.unphased.mean_coverage:.1f}",
             "mean_meth": f"{result.mean_methylation:.1f}" if not np.isnan(result.mean_methylation) else "N/A",
             "is_phased": result.is_phased,
+            "unreliable": result.region.unreliable,
+            "unreliable_reason": result.region.unreliable_reason,
         })
 
     disorder_groups: dict[str, list[dict]] = {}
@@ -927,7 +951,8 @@ th {{
   white-space: nowrap;
 }}
 td {{ padding: 9px 14px; border-top: 1px solid var(--border); }}
-tr.row-flagged {{ background: #FFF5F5; }}
+tr.row-flagged     {{ background: #FFF5F5; }}
+tr.row-unreliable  {{ background: #FFFBEB; }}
 tbody tr:hover td {{ background: #F8FAFF; }}
 .td-region {{ font-weight: 600; }}
 .td-num    {{ text-align: right; font-variant-numeric: tabular-nums; }}
@@ -944,10 +969,11 @@ tbody tr:hover td {{ background: #F8FAFF; }}
   white-space: nowrap;
   letter-spacing: 0.2px;
 }}
-.badge-normal {{ background: #F0FDF4; color: #065F46; border: 1px solid #86EFAC; }}
-.badge-low    {{ background: #FEF2F2; color: #991B1B; border: 1px solid #FECACA; }}
-.badge-high   {{ background: #FFF7ED; color: #92400E; border: 1px solid #FED7AA; }}
-.badge-na     {{ background: #F8FAFC; color: #64748B; border: 1px solid #CBD5E1; }}
+.badge-normal      {{ background: #F0FDF4; color: #065F46; border: 1px solid #86EFAC; }}
+.badge-low         {{ background: #FEF2F2; color: #991B1B; border: 1px solid #FECACA; }}
+.badge-high        {{ background: #FFF7ED; color: #92400E; border: 1px solid #FED7AA; }}
+.badge-na          {{ background: #F8FAFC; color: #64748B; border: 1px solid #CBD5E1; }}
+.badge-unreliable  {{ background: #FFFBEB; color: #92400E; border: 1px solid #FDE68A; }}
 
 /* ── Disorder sections ───────────────────────────────────────────────────── */
 .disorder-section {{ margin-bottom: 40px; }}
@@ -1001,7 +1027,19 @@ tbody tr:hover td {{ background: #F8FAFF; }}
   transition: box-shadow 0.2s;
 }}
 .region-card:hover {{ box-shadow: var(--shadow-md); }}
-.region-card-flagged {{ border-left: 3px solid var(--danger); }}
+.region-card-flagged      {{ border-left: 3px solid var(--danger); }}
+.region-card-unreliable   {{ border-left: 3px solid var(--amber); }}
+.unreliable-banner {{
+  background: #FFFBEB;
+  border-bottom: 1px solid #FDE68A;
+  padding: 10px 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}}
+.unreliable-icon   {{ color: var(--amber); font-size: 1rem; flex-shrink: 0; margin-top: 1px; }}
+.unreliable-title  {{ font-size: 0.78rem; font-weight: 700; color: #92400E; margin-bottom: 2px; }}
+.unreliable-reason {{ font-size: 0.76rem; color: #B45309; line-height: 1.5; }}
 .region-card-header {{
   padding: 11px 16px;
   background: #FAFBFC;

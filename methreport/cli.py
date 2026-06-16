@@ -457,9 +457,11 @@ def list_regions(
     table.add_column("Start", justify="right")
     table.add_column("End", justify="right")
     table.add_column("Size (bp)", justify="right")
+    table.add_column("Note")
     for r in regions:
+        note = "[yellow]⚠ unreliable[/yellow]" if r.unreliable else ""
         table.add_row(r.name, r.label, r.disorder, r.chrom,
-                      f"{r.start:,}", f"{r.end:,}", f"{r.end - r.start:,}")
+                      f"{r.start:,}", f"{r.end:,}", f"{r.end - r.start:,}", note)
     console.print(table)
 
 
@@ -487,13 +489,18 @@ def _print_summary(analysis) -> None:
         hp1_str  = f"{hp1:.1f}%"  if not np.isnan(hp1)  else "—"
         hp2_str  = f"{hp2:.1f}%"  if not np.isnan(hp2)  else "—"
         z_str    = f"{z:+.2f}"    if not np.isnan(z)     else "—"
-        flag_style = "red bold" if r.flag in ("LOW", "HIGH") else "green"
+        if r.flag in ("LOW", "HIGH"):
+            flag_cell = f"[red bold]{r.flag}[/red bold]"
+        elif r.flag == "UNRELIABLE":
+            flag_cell = "[yellow]UNRELIABLE ⚠[/yellow]"
+        else:
+            flag_cell = f"[green]{r.flag}[/green]"
         table.add_row(
             r.region.label, r.region.disorder,
             str(r.unphased.n_cpg), str(r.n_informative),
             f"{r.unphased.mean_coverage:.0f}×",
             meth_str, hp1_str, hp2_str, z_str,
-            f"[{flag_style}]{r.flag}[/{flag_style}]",
+            flag_cell,
         )
 
     console.print(table)
