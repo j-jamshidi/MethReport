@@ -539,11 +539,15 @@ def _render_html(
     summary_rows   = _build_summary_table(analysis)
     disorder_secs  = _build_disorder_sections(disorder_groups, analysis)
 
+    def _nav_item(disorder: str, plots: list) -> str:
+        anchor = disorder.replace("/", "-").replace(" ", "-")
+        flagged = any(p["flag"] in ("LOW", "HIGH") for p in plots)
+        dot_class = "nav-dot nav-dot-flag" if flagged else "nav-dot"
+        return (f'<li><a class="nav-link" href="#disorder-{anchor}">'
+                f'<span class="{dot_class}"></span>{disorder}</a></li>')
+
     nav_disorders = "\n".join(
-        f'<li><a class="nav-link" href="#disorder-{d.replace("/","-").replace(" ","-")}">'
-        f'<span class="nav-dot {'nav-dot-flag' if any(p["flag"] in ("LOW","HIGH") for p in plots) else ''}"></span>'
-        f'{d}</a></li>'
-        for d, plots in disorder_groups.items()
+        _nav_item(d, plots) for d, plots in disorder_groups.items()
     )
 
     meta_rows = "".join(

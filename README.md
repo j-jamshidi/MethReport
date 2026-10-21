@@ -13,11 +13,13 @@ MethReport analyses Oxford Nanopore modbam files and produces an interactive HTM
 - Covers **14 imprinting DMRs** across TNDM, SRS, BWS, Kagami-Ogata, Temple, Prader-Willi, Angelman, PHP, and MLID
 - Two reference genomes: **T2T-CHM13v2.0** and **hg38**
 - Outputs:
-  - Interactive HTML report (Plotly — self-contained, no server needed)
+  - Interactive HTML report (Plotly and webfonts are fetched from a CDN, so
+    charts need network access when the report is opened)
   - Per-region summary TSV
   - Per-CpG methylation TSV
   - IGV-ready BED tracks (unphased + HP1 + HP2)
-- Bundled control reference ranges with user-override support
+- Control reference ranges loaded from `methreport/data/`, with user-override
+  support. **No control file ships with this repository** — see Controls below
 - Rich terminal output with progress and flagged-region summary
 
 ---
@@ -71,13 +73,35 @@ samtools index sample.sorted.bam
 
 ```bash
 # T2T-CHM13v2.0 reference (recommended)
-methreport run sample.sorted.bam --ref t2t --out results/
+methreport run --bam sample.sorted.bam --ref t2t --out results/
 
 # hg38 reference
-methreport run sample.sorted.bam --ref hg38 --out results/
+methreport run --bam sample.sorted.bam --ref hg38 --out results/
 
 # With custom sample name
-methreport run sample.sorted.bam --ref t2t --sample PATIENT_001 --out results/
+methreport run --bam sample.sorted.bam --ref t2t --sample PATIENT_001 --out results/
+```
+
+### Prefer modkit BEDMethyl over the BAM
+
+`--bam` parses MM/ML tags directly, which merges strands less accurately than
+modkit does. On a 30x phased HG002 BAM the two paths differ materially: mean
+methylation read 5-17 percentage points lower through `--bam`, the mean z-score
+against controls sat at -0.93 rather than -0.20, and one region was flagged
+abnormal that the BEDMethyl path called normal with both methods agreeing.
+Phasing also survives better, with per-haplotype evidence available for 10 of
+14 regions against 6 of 14.
+
+Use `--bed` where you can:
+
+```bash
+modkit pileup sample.bam unphased.bed --cpg --combine-strands --ref genome.fa
+modkit pileup sample.bam hp_dir      --cpg --combine-strands --ref genome.fa \\
+    --partition-tag HP --prefix hp
+
+methreport run --bed unphased.bed \\
+    --bed-hp1 hp_dir/hp_1.bed --bed-hp2 hp_dir/hp_2.bed \\
+    --ref hg38 --out results/
 ```
 
 ### 3. Open the report
@@ -91,9 +115,14 @@ results/PATIENT_001_methreport.html
 ## Options
 
 ```
-methreport run [OPTIONS] BAM
+methreport run [OPTIONS]
 
-  BAM                Indexed modbam file (.bam)
+Input (choose one):
+  --bam PATH         Indexed modbam file (.bam)
+  --bed PATH         modkit BEDMethyl, unphased (recommended)
+  --bed-hp1 PATH     modkit BEDMethyl for haplotype 1 (used with --bed)
+  --bed-hp2 PATH     modkit BEDMethyl for haplotype 2 (used with --bed)
+  --list PATH        Text file of BAM paths, one per line, for batch analysis
 
 Options:
   --ref  -r TEXT     Reference genome: 't2t' or 'hg38'  [default: t2t]
@@ -103,33 +132,57 @@ Options:
   --replace-controls Replace bundled controls instead of supplementing
   --min-cov INT      Minimum CpG coverage  [default: 5]
   --call-threshold   MM/ML probability threshold  [default: 0.5]
-  --no-bed           Skip BED track output
+  --no-bed-tracks    Skip BED track output
   --no-tsv           Skip TSV export
   --verbose -v       Debug logging
 ```
 
 ---
 
-## Custom Controls
+## Controls
 
-To use your own cohort controls, prepare a TSV with columns:
+Two schemas are accepted and detected by column name:
 
 ```
-region_name    position    sample_id    methylation_pct
-PLAGL1_alt_TSS_DMR    145200350    ctrl_01    48.2
-...
+long        region_name  position  sample_id  methylation_pct
+aggregated  region_name  position  mean  sd  [n_controls]
 ```
 
-Then pass it with `--controls my_controls.tsv`.
+Use the long form for your own cohort, one row per CpG per control sample:
 
-To convert the original NanoImprint Excel controls:
+```
+region_name           position     sample_id   methylation_pct
+PLAGL1_alt_TSS_DMR    145200350    ctrl_01     48.2
+```
+
+Pass either form with `--controls my_controls.tsv`, and add
+`--replace-controls` to discard the file in `methreport/data/` rather than
+supplement it. Two aggregated summaries of the same position cannot be pooled
+without each one's control count, so where both files cover a position the
+user's value is taken and a warning is logged.
+
+### Obtaining the NanoImprint controls
+
+No control file ships with this repository. The published NanoImprint
+spreadsheets give per-position mean and SD, with no per-sample values and no
+control count, so they convert to the aggregated schema:
 
 ```bash
+git clone https://github.com/carolinehey/NanoImprint
 python scripts/convert_controls.py \
-    --t2t  ctrls_2.xlsx \
-    --hg38 ctrls_hg38.xlsx \
+    --t2t  NanoImprint/ctrls_2.xlsx \
+    --hg38 NanoImprint/ctrls_hg38.xlsx \
     --out  methreport/data/
 ```
+
+That yields 2,196 positions across all 14 hg38 regions, and 2,211 for T2T.
+Positions are assigned to a DMR by coordinate using this package's own region
+definitions, so the two cannot drift apart; a position falling outside every
+region is reported and dropped.
+
+**The NanoImprint repository carries no licence**, so its control data is all
+rights reserved. Convert it for local use; do not redistribute the converted
+file or ship it inside a published image without the authors' permission.
 
 ---
 

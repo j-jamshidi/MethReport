@@ -19,10 +19,13 @@ Column indices (0-based):
   [10] pct_modified (0–100)
 
 Phased analysis requires three separate files: unphased, hp1, hp2.
-These are produced by running modkit with --partition-tag HP:
-  modkit pileup sample.bam unphased.bed --ref genome.fa
-  modkit pileup sample.bam hp1.bed --ref genome.fa --partition-tag HP --filter-tag HP:1
-  modkit pileup sample.bam hp2.bed --ref genome.fa --partition-tag HP --filter-tag HP:2
+These are produced by two modkit runs, one plain and one partitioned by the HP
+tag. The partitioned run writes a directory, one file per tag value plus one for
+untagged reads:
+  modkit pileup sample.bam unphased.bed --cpg --combine-strands --ref genome.fa
+  modkit pileup sample.bam hp_dir --cpg --combine-strands --ref genome.fa \
+      --partition-tag HP --prefix hp
+  # hp_dir/hp_1.bed, hp_dir/hp_2.bed, hp_dir/hp_ungrouped.bed
 
 Or from wf-human-variation (--mod --phased flags), which outputs:
   sample.methyl.cpg.acc.bed        (unphased)
@@ -42,7 +45,11 @@ from methreport.regions import DMRegion
 
 log = logging.getLogger(__name__)
 
-_MOD_TYPE_5MC = "m"
+# Modkit writes "m" for 5mC. Run with --combine-mods it instead writes "C",
+# meaning 5mC and 5hmC counted together; both are accepted here because a file
+# whose code is not recognised otherwise yields no sites at all, and a report of
+# fourteen empty regions is far more dangerous than a refusal.
+_MOD_TYPES_5MC = ("m", "C")
 _COL_CHROM   = 0
 _COL_START   = 1
 _COL_MODTYPE = 3
@@ -54,6 +61,8 @@ def _load_bed(path: Path) -> pd.DataFrame:
     """Load a BEDMethyl file into a DataFrame, filtering to 5mC rows only."""
     rows = []
     n_skipped = 0
+    used_codes: set[str] = set()
+    rejected_codes: set[str] = set()
     with open(path) as fh:
         for line in fh:
             if line.startswith("#") or line.startswith("track") or line.startswith("browser"):
@@ -62,8 +71,11 @@ def _load_bed(path: Path) -> pd.DataFrame:
             if len(parts) <= _COL_PCT:
                 n_skipped += 1
                 continue
-            if parts[_COL_MODTYPE] != _MOD_TYPE_5MC:
+            code = parts[_COL_MODTYPE]
+            if code not in _MOD_TYPES_5MC:
+                rejected_codes.add(code)
                 continue
+            used_codes.add(code)
             try:
                 rows.append((
                     parts[_COL_CHROM],
@@ -78,10 +90,16 @@ def _load_bed(path: Path) -> pd.DataFrame:
         log.debug("%s: skipped %d malformed lines", path.name, n_skipped)
 
     if not rows:
-        return pd.DataFrame(columns=["chrom", "position", "n_valid_cov", "pct_modified"])
+        raise ValueError(
+            f"{path}: no 5mC rows found. Modification codes present in the file: "
+            f"{sorted(rejected_codes) or 'none'}; this reader accepts "
+            f"{list(_MOD_TYPES_5MC)}. Check that the file is modkit pileup output "
+            f"and that it was not written for a different modification."
+        )
 
     df = pd.DataFrame(rows, columns=["chrom", "position", "n_valid_cov", "pct_modified"])
-    log.debug("%s: loaded %d 5mC sites", path.name, len(df))
+    log.info("%s: loaded %d 5mC sites from code %s", path.name, len(df),
+             ", ".join(sorted(used_codes)))
     return df
 
 

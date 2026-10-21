@@ -1,5 +1,23 @@
 #!/usr/bin/env python3
-"""Convert NanoImprint Excel control files to the TSV format expected by MethReport.
+"""Convert the NanoImprint control spreadsheets into MethReport control TSVs.
+
+The published NanoImprint control files (ctrls_2.xlsx for T2T-CHM13v2.0,
+ctrls_hg38.xlsx for hg38, from carolinehey/NanoImprint) hold one sheet of
+already-aggregated statistics:
+
+    <index>  start_position  methylation_frequency  sd
+
+There is no per-sample column, no chromosome and no control count, so the
+per-sample long format MethReport also accepts cannot be reconstructed from
+them, and this script does not try: it writes the aggregated schema instead,
+
+    region_name  position  mean  sd  n_controls
+
+leaving n_controls empty because the source does not record it. Positions are
+assigned to a DMR by coordinate, using MethReport's own region definitions so
+the two cannot drift apart. A position that falls in no region is reported and
+dropped; a position that falls in more than one is an error, since the regions
+are meant to be disjoint.
 
 Usage:
     python scripts/convert_controls.py \\
@@ -7,98 +25,100 @@ Usage:
         --hg38 path/to/ctrls_hg38.xlsx \\
         --out  methreport/data/
 
-The Excel files are from carolinehey/NanoImprint.
+The control data is the intellectual property of the NanoImprint authors and
+carries no licence in that repository. Convert it for local use; do not
+redistribute the result without their permission.
 """
 
+from __future__ import annotations
+
 import argparse
+import sys
 from pathlib import Path
 
 import pandas as pd
 
+from methreport.regions import get_regions
 
-REGION_COLUMN_MAP = {
-    # Each sheet in the Excel corresponds to a region.
-    # Keys are sheet name substrings → region_name values used in MethReport.
-    "PLAGL1": "PLAGL1_alt_TSS_DMR",
-    "GRB10": "GRB10_alt_TSS_DMR",
-    "MEST": "MEST_alt_TSS_DMR",
-    "H19": "H19_IGF2_IG_DMR",
-    "KCNQ1": "KCNQ1OT1_TSS_DMR",
-    "MEG3": "MEG3_TSS_DMR",
-    "MEG8": "MEG8_Int2_DMR",
-    "MAGEL2": "MAGEL2_TSS_DMR",
-    "SNURF": "SNURF_TSS_DMR",
-    "PEG3": "PEG3_TSS_DMR",
-    "NESP": "GNAS_NESP_TSS_DMR",
-    "AS1": "GNAS_AS1_TSS_DMR",
-    "GNASXL": "GNASXL_Ex1_DMR",
-    "AB": "GNAS_AB_TSS_DMR",
-}
+# Column names accepted in the source sheet, lowercased.
+_POSITION_COLUMNS = ("start_position", "position", "start")
+_MEAN_COLUMNS = ("methylation_frequency", "mean", "methylation_pct")
+_SD_COLUMNS = ("sd", "std", "stdev")
 
 
-def sheet_to_region(sheet_name: str) -> str | None:
-    for key, region in REGION_COLUMN_MAP.items():
-        if key.upper() in sheet_name.upper():
-            return region
-    return None
+def _pick(columns: list[str], candidates: tuple[str, ...], label: str) -> str:
+    lowered = {str(c).strip().lower(): c for c in columns}
+    for name in candidates:
+        if name in lowered:
+            return lowered[name]
+    raise SystemExit(
+        f"error: no {label} column found. Looked for {list(candidates)}, "
+        f"sheet has {columns}"
+    )
 
 
-def convert_excel(xlsx_path: Path, genome: str, out_dir: Path) -> None:
+def convert_excel(xlsx_path: Path, genome: str, out_dir: Path) -> Path:
+    regions = get_regions(genome)
+    frame = pd.read_excel(xlsx_path)
+
+    pos_col = _pick(list(frame.columns), _POSITION_COLUMNS, "position")
+    mean_col = _pick(list(frame.columns), _MEAN_COLUMNS, "methylation")
+    sd_col = _pick(list(frame.columns), _SD_COLUMNS, "standard deviation")
+
+    frame = frame[[pos_col, mean_col, sd_col]].copy()
+    frame.columns = ["position", "mean", "sd"]
+    frame = frame.dropna(subset=["position", "mean"])
+    frame["position"] = frame["position"].astype(float).astype(int)
+
+    def assign(position: int) -> str | None:
+        hits = [r.name for r in regions if r.start <= position <= r.end]
+        if len(hits) > 1:
+            raise SystemExit(
+                f"error: position {position} falls in {len(hits)} regions "
+                f"({', '.join(hits)}); the region definitions overlap"
+            )
+        return hits[0] if hits else None
+
+    frame["region_name"] = frame["position"].map(assign)
+    outside = frame["region_name"].isna().sum()
+    frame = frame.dropna(subset=["region_name"])
+    frame["n_controls"] = pd.NA
+    frame = frame[["region_name", "position", "mean", "sd", "n_controls"]]
+    frame = frame.sort_values(["region_name", "position"]).reset_index(drop=True)
+
     out_dir.mkdir(parents=True, exist_ok=True)
-    xl = pd.ExcelFile(xlsx_path)
-    frames = []
-
-    for sheet in xl.sheet_names:
-        region_name = sheet_to_region(sheet)
-        if region_name is None:
-            print(f"  Skipping sheet '{sheet}' (no region match)")
-            continue
-
-        df = xl.parse(sheet)
-        # Expected columns in NanoImprint controls: position, then one column per sample
-        # Melt into long format
-        if "position" not in [c.lower() for c in df.columns]:
-            print(f"  Skipping sheet '{sheet}' (no 'position' column)")
-            continue
-
-        pos_col = next(c for c in df.columns if c.lower() == "position")
-        sample_cols = [c for c in df.columns if c != pos_col]
-
-        melted = df.melt(id_vars=pos_col, value_vars=sample_cols,
-                         var_name="sample_id", value_name="methylation_pct")
-        melted = melted.rename(columns={pos_col: "position"})
-        melted["region_name"] = region_name
-        melted = melted.dropna(subset=["methylation_pct"])
-        melted = melted[["region_name", "position", "sample_id", "methylation_pct"]]
-        frames.append(melted)
-        print(f"  {sheet} → {region_name}: {len(melted)} rows")
-
-    if not frames:
-        print(f"No valid sheets found in {xlsx_path}")
-        return
-
-    combined = pd.concat(frames, ignore_index=True)
     out_path = out_dir / f"controls_{genome}.tsv"
-    combined.to_csv(out_path, sep="\t", index=False)
-    print(f"Written: {out_path}  ({len(combined)} rows total)")
+    frame.to_csv(out_path, sep="\t", index=False)
+
+    print(f"{xlsx_path.name} -> {out_path}")
+    print(f"  {len(frame)} positions assigned across "
+          f"{frame['region_name'].nunique()} of {len(regions)} regions")
+    if outside:
+        print(f"  {outside} positions fell outside every MethReport region and "
+              f"were dropped")
+    for region in regions:
+        n = int((frame["region_name"] == region.name).sum())
+        if n == 0:
+            print(f"  WARNING: no control positions for {region.label}")
+    return out_path
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--t2t", type=Path, help="ctrls_2.xlsx (T2T genome)")
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--t2t", type=Path, help="ctrls_2.xlsx (T2T-CHM13v2.0)")
     parser.add_argument("--hg38", type=Path, help="ctrls_hg38.xlsx")
-    parser.add_argument("--out", type=Path, default=Path("methreport/data"), help="Output directory")
+    parser.add_argument("--out", type=Path, default=Path("methreport/data"),
+                        help="output directory")
     args = parser.parse_args()
-
-    if args.t2t:
-        print(f"Converting T2T controls: {args.t2t}")
-        convert_excel(args.t2t, "t2t", args.out)
-    if args.hg38:
-        print(f"Converting hg38 controls: {args.hg38}")
-        convert_excel(args.hg38, "hg38", args.out)
 
     if not args.t2t and not args.hg38:
         parser.print_help()
+        sys.exit(1)
+    if args.t2t:
+        convert_excel(args.t2t, "t2t", args.out)
+    if args.hg38:
+        convert_excel(args.hg38, "hg38", args.out)
 
 
 if __name__ == "__main__":

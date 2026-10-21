@@ -25,6 +25,19 @@ from methreport.regions import DMRegion, get_regions
 log = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class FlagDecision:
+    """What both methods concluded, and what they amount to together."""
+    flag: str
+    z_score: float
+    n_informative: int
+    flag_controls: str
+    flag_asymmetry: str
+    hp_delta: float
+    confidence: str
+    evidence: str
+
+
 @dataclass
 class RegionResult:
     region: DMRegion
@@ -35,6 +48,14 @@ class RegionResult:
     flag: str = "NA"            # "NORMAL" | "LOW" | "HIGH" | "NA"
     z_score: float = float("nan")   # mean z-score across informative CpGs
     n_informative: int = 0      # number of CpGs used for z-score (subset of n_cpg)
+    # Dual-mode record: what each method concluded on its own, and how much the
+    # two together are worth. Kept separately from `flag` so that a combined
+    # call can never hide the evidence it was built from.
+    flag_controls: str = "NA"   # z-score against controls, alone
+    flag_asymmetry: str = "NA"  # HP1 vs HP2 allelic asymmetry, alone
+    hp_delta: float = float("nan")  # |HP1 - HP2| mean methylation, percentage points
+    confidence: str = "none"    # see methreport.analysis.CONFIDENCE_* below
+    evidence: str = ""          # one line naming the methods that contributed
 
     @property
     def mean_methylation(self) -> float:
@@ -72,6 +93,11 @@ class RegionResult:
             "methylation_pct_hp2": round(hp2, 1) if not np.isnan(hp2) else None,
             "z_score": round(self.z_score, 2) if not np.isnan(self.z_score) else None,
             "flag": self.flag,
+            "flag_controls": self.flag_controls,
+            "flag_asymmetry": self.flag_asymmetry,
+            "hp_delta": round(self.hp_delta, 1) if not np.isnan(self.hp_delta) else None,
+            "confidence": self.confidence,
+            "evidence": self.evidence,
             "unreliable": self.region.unreliable,
             "unreliable_reason": self.region.unreliable_reason if self.region.unreliable else "",
         }
@@ -102,57 +128,136 @@ _MIN_PHASED_CPG = 5   # per-haplotype CpG minimum for phased flagging
 _HP_HIGH_THRESH = 65.0  # clearly methylated allele
 _HP_LOW_THRESH  = 35.0  # clearly unmethylated allele
 
+# How much the combined call is worth. These are recorded on every region so a
+# reader can tell a call both methods agree on from one that rests on a single
+# method, or on the fixed-threshold fallback.
+CONFIDENCE_CONCORDANT = "concordant"       # both methods available and agreeing
+CONFIDENCE_DISCORDANT = "discordant"       # both available, disagreeing
+CONFIDENCE_CONTROLS = "controls only"      # asymmetry unavailable
+CONFIDENCE_ASYMMETRY = "asymmetry only"    # controls unavailable
+CONFIDENCE_FALLBACK = "fixed threshold"    # neither available; low confidence
+CONFIDENCE_NONE = "none"                   # nothing measurable
+
+
+def _asymmetry_flag(
+    hp1: RegionMethylation,
+    hp2: RegionMethylation,
+) -> tuple[str, float]:
+    """Flag a region from the symmetry of its two haplotypes.
+
+    An imprinted DMR is expected to be strongly asymmetric: one haplotype
+    methylated, the other not. Both high is hypermethylation, both low is
+    hypomethylation, and one of each is the normal pattern whatever the
+    unphased mean happens to be. Returns ("NA", delta) when the region is not
+    phased deeply enough to judge, or when the two haplotypes sit between the
+    thresholds so that neither asymmetry nor its loss can be asserted.
+    """
+    m1, m2 = hp1.mean_methylation_pct, hp2.mean_methylation_pct
+    if np.isnan(m1) or np.isnan(m2):
+        return "NA", float("nan")
+
+    delta = abs(m1 - m2)
+    if hp1.n_cpg < _MIN_PHASED_CPG or hp2.n_cpg < _MIN_PHASED_CPG:
+        return "NA", delta
+
+    hp_high, hp_low = max(m1, m2), min(m1, m2)
+    if hp_high >= _HP_HIGH_THRESH and hp_low <= _HP_LOW_THRESH:
+        return "NORMAL", delta          # canonical imprinting pattern
+    if hp_low >= _HP_HIGH_THRESH:
+        return "HIGH", delta            # both alleles methylated
+    if hp_high <= _HP_LOW_THRESH:
+        return "LOW", delta             # both alleles unmethylated
+    return "NA", delta                  # between thresholds: no assertion
+
+
+def combine_flags(flag_controls: str, flag_asymmetry: str) -> tuple[str, str, str]:
+    """Decide a region from both methods at once.
+
+    Returns (flag, confidence, evidence). The rule where the two disagree is
+    deliberately asymmetric: an abnormal result from either method is carried
+    through rather than averaged away, because a missed epimutation costs more
+    than a region sent for review. The disagreement is recorded in the
+    confidence field so that such a call is never mistaken for a settled one.
+    """
+    have_c = flag_controls in ("NORMAL", "LOW", "HIGH")
+    have_a = flag_asymmetry in ("NORMAL", "LOW", "HIGH")
+
+    if have_c and have_a:
+        if flag_controls == flag_asymmetry:
+            return (flag_controls, CONFIDENCE_CONCORDANT,
+                    "z-score against controls and allelic asymmetry agree")
+        if flag_controls == "NORMAL":
+            return (flag_asymmetry, CONFIDENCE_DISCORDANT,
+                    "allelic asymmetry reports "
+                    f"{flag_asymmetry.lower()} where the z-score against "
+                    "controls is normal")
+        if flag_asymmetry == "NORMAL":
+            return (flag_controls, CONFIDENCE_DISCORDANT,
+                    "the z-score against controls reports "
+                    f"{flag_controls.lower()} where allelic asymmetry is normal")
+        # Both abnormal, in opposite directions. The z-score is positional and
+        # quantitative, so it sets the direction, but the contradiction stands.
+        return (flag_controls, CONFIDENCE_DISCORDANT,
+                f"the z-score against controls reports {flag_controls.lower()} "
+                f"and allelic asymmetry reports {flag_asymmetry.lower()}; the "
+                "two contradict each other")
+
+    if have_c:
+        return (flag_controls, CONFIDENCE_CONTROLS,
+                "z-score against controls; the region is not phased deeply "
+                "enough for allelic asymmetry")
+    if have_a:
+        return (flag_asymmetry, CONFIDENCE_ASYMMETRY,
+                "allelic asymmetry; no control data for this region")
+    return ("NA", CONFIDENCE_NONE, "")
+
 
 def _compute_flag(
     unphased: RegionMethylation,
     hp1: RegionMethylation,
     hp2: RegionMethylation,
     reference: pd.DataFrame,
-) -> tuple[str, float, int]:
-    """Compute flag using the best available evidence, in priority order:
+) -> FlagDecision:
+    """Flag a region from both independent lines of evidence.
 
-    1. z-score against per-position controls  (most sensitive, avoids fixed cutoffs)
-    2. Phased allelic symmetry (HP1 vs HP2)   (reliable when phased, no controls needed)
-    3. Fixed threshold on unphased mean        (last resort — low confidence)
+    The two methods answer the same question in different ways and fail in
+    different places. A z-score against per-position controls is quantitative
+    and sensitive, but needs control data for the region and says nothing about
+    which allele carries the methylation. Allelic asymmetry needs no controls
+    and speaks directly to the imprinting mechanism, but needs the region to be
+    phased and cannot judge haplotypes that sit between its thresholds.
 
-    For imprinted regions, the expected pattern is strong allelic asymmetry:
-    one haplotype ~75-100% methylated, the other ~0-25%. Any sample where BOTH
-    haplotypes are high (biallelic methylation) or BOTH are low (biallelic
-    unmethylation) is flagged. If one is clearly high and the other clearly low,
-    the region is NORMAL regardless of the unphased mean.
+    Both are therefore computed whenever they can be, and `combine_flags`
+    decides. Only when neither is available does the fixed threshold on the
+    unphased mean apply, which the caller records as low confidence.
     """
-    # ── Strategy 1: z-score vs controls ────────────────────────────────────
+    # ── Evidence 1: z-score against per-position controls ──────────────────
+    flag_controls, z_score, n_informative = "NA", float("nan"), 0
     if not reference.empty:
         sample_df = unphased.to_dataframe()
         if not sample_df.empty:
-            return z_score_flag(sample_df, reference)
+            flag_controls, z_score, n_informative = z_score_flag(sample_df, reference)
 
-    # ── Strategy 2: phased allelic symmetry ────────────────────────────────
-    if hp1.n_cpg >= _MIN_PHASED_CPG and hp2.n_cpg >= _MIN_PHASED_CPG:
-        m1 = hp1.mean_methylation_pct
-        m2 = hp2.mean_methylation_pct
-        if not (np.isnan(m1) or np.isnan(m2)):
-            hp_high = max(m1, m2)
-            hp_low  = min(m1, m2)
+    # ── Evidence 2: allelic asymmetry between the two haplotypes ───────────
+    flag_asymmetry, hp_delta = _asymmetry_flag(hp1, hp2)
 
-            if hp_high >= _HP_HIGH_THRESH and hp_low <= _HP_LOW_THRESH:
-                # Canonical imprinting pattern: one allele methylated, one not
-                return "NORMAL", float("nan"), 0
+    # ── Decide ─────────────────────────────────────────────────────────────
+    flag, confidence, evidence = combine_flags(flag_controls, flag_asymmetry)
 
-            if hp_low >= _HP_HIGH_THRESH:
-                # Both alleles heavily methylated
-                return "HIGH", float("nan"), 0
+    # ── Fallback: neither method could speak ───────────────────────────────
+    if flag == "NA":
+        mean_meth = unphased.mean_methylation_pct
+        if np.isnan(mean_meth) or unphased.n_cpg == 0:
+            return FlagDecision("NA", z_score, n_informative, flag_controls,
+                                flag_asymmetry, hp_delta, CONFIDENCE_NONE,
+                                "no methylation measurable in this region")
+        flag = flag_result(mean_meth)
+        confidence = CONFIDENCE_FALLBACK
+        evidence = ("fixed threshold on the unphased mean; neither control "
+                    "data nor sufficient phasing was available")
 
-            if hp_high <= _HP_LOW_THRESH:
-                # Both alleles unmethylated
-                return "LOW", float("nan"), 0
-            # Ambiguous phasing — fall through to fixed threshold
-
-    # ── Strategy 3: fixed threshold (last resort) ───────────────────────────
-    mean_meth = unphased.mean_methylation_pct
-    if np.isnan(mean_meth) or unphased.n_cpg == 0:
-        return "NA", float("nan"), 0
-    return flag_result(mean_meth), float("nan"), 0
+    return FlagDecision(flag, z_score, n_informative, flag_controls,
+                        flag_asymmetry, hp_delta, confidence, evidence)
 
 
 def run_analysis(
@@ -258,9 +363,14 @@ def run_analysis(
 
         # --- Flagging ---
         if region.unreliable:
-            flag, z_score, n_informative = "UNRELIABLE", float("nan"), 0
+            # Still measured and reported, but never flagged: the region is
+            # known to mismap, so a departure from the controls would say more
+            # about the alignment than about the sample.
+            decision = FlagDecision(
+                "UNRELIABLE", float("nan"), 0, "NA", "NA", float("nan"),
+                CONFIDENCE_NONE, region.unreliable_reason)
         else:
-            flag, z_score, n_informative = _compute_flag(
+            decision = _compute_flag(
                 meth["unphased"], meth["hp1"], meth["hp2"], ref
             )
 
@@ -270,19 +380,28 @@ def run_analysis(
             hp1=meth["hp1"],
             hp2=meth["hp2"],
             reference=ref,
-            flag=flag,
-            z_score=z_score,
-            n_informative=n_informative,
+            flag=decision.flag,
+            z_score=decision.z_score,
+            n_informative=decision.n_informative,
+            flag_controls=decision.flag_controls,
+            flag_asymmetry=decision.flag_asymmetry,
+            hp_delta=decision.hp_delta,
+            confidence=decision.confidence,
+            evidence=decision.evidence,
         )
         analysis.results.append(result)
 
         meth_val = result.mean_methylation
         log.info(
-            "    → %.1f%% methylation  flag=%s  z=%.2f  informative_cpg=%d/%d  cov=%.1f×",
+            "    → %.1f%% methylation  flag=%s (%s)  controls=%s  asymmetry=%s"
+            "  z=%.2f  informative_cpg=%d/%d  cov=%.1f×",
             meth_val if not np.isnan(meth_val) else 0,
-            flag,
-            z_score if not np.isnan(z_score) else 0,
-            n_informative,
+            decision.flag,
+            decision.confidence,
+            decision.flag_controls,
+            decision.flag_asymmetry,
+            decision.z_score if not np.isnan(decision.z_score) else 0,
+            decision.n_informative,
             result.unphased.n_cpg,
             result.unphased.mean_coverage,
         )

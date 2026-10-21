@@ -1,12 +1,20 @@
 """Control data loading and reference range computation.
 
-Bundled controls are derived from ctrls_2.xlsx / ctrls_hg38.xlsx in the
-NanoImprint repository (carolinehey/NanoImprint).
+Controls are accepted in either of two schemas, which are detected by column
+name and normalised to the same internal form:
 
-Control data format (TSV, one row per CpG site per control sample):
-    region_name  position  sample_id  methylation_pct
+    long        region_name  position  sample_id  methylation_pct
+    aggregated  region_name  position  mean  sd  [n_controls]
 
-Users can supply additional or replacement controls via --controls flag.
+The long schema is what a laboratory gets from its own control cohort, one row
+per CpG per control sample. The aggregated schema is what the published
+NanoImprint spreadsheets provide (carolinehey/NanoImprint): per-position mean
+and standard deviation with no per-sample values, no control count, and
+therefore nothing from which the long form could be reconstructed.
+
+Everything downstream consumes the aggregated form, so a long-form cohort is
+reduced to per-position mean and SD on load. Users can supply additional or
+replacement controls via the --controls flag.
 """
 
 from __future__ import annotations
@@ -33,6 +41,51 @@ FLAG_LOW = 20.0
 FLAG_HIGH = 80.0
 
 
+LONG_COLUMNS = {"region_name", "position", "sample_id", "methylation_pct"}
+AGG_COLUMNS = {"region_name", "position", "mean", "sd"}
+
+AGG_SCHEMA = ["region_name", "position", "mean", "sd", "n_controls"]
+
+
+def empty_controls() -> pd.DataFrame:
+    """An empty control table in the aggregated form."""
+    return pd.DataFrame(columns=AGG_SCHEMA)
+
+
+def normalise_controls(df: pd.DataFrame) -> pd.DataFrame:
+    """Reduce either accepted schema to per-position mean and SD.
+
+    A long-form cohort is grouped per position. An aggregated table is passed
+    through, with `n_controls` filled in as missing if the source omitted it.
+    Raises ValueError if the table matches neither schema.
+    """
+    if df.empty:
+        return empty_controls()
+
+    columns = set(df.columns)
+    if LONG_COLUMNS <= columns:
+        grouped = (
+            df.groupby(["region_name", "position"])["methylation_pct"]
+            .agg(mean="mean", sd="std", n_controls="count")
+            .reset_index()
+        )
+        # A single control gives no spread; z_score_flag clips SD to a floor,
+        # so 0.0 here is honest rather than merely convenient.
+        grouped["sd"] = grouped["sd"].fillna(0.0)
+        return grouped[AGG_SCHEMA]
+
+    if AGG_COLUMNS <= columns:
+        out = df.copy()
+        if "n_controls" not in out.columns:
+            out["n_controls"] = pd.NA
+        return out[AGG_SCHEMA]
+
+    raise ValueError(
+        "controls match neither schema. Expected either "
+        f"{sorted(LONG_COLUMNS)} or {sorted(AGG_COLUMNS)}, got {sorted(columns)}"
+    )
+
+
 def load_bundled_controls(genome: str) -> pd.DataFrame:
     """Load the bundled control dataset for the given genome.
 
@@ -43,12 +96,13 @@ def load_bundled_controls(genome: str) -> pd.DataFrame:
     filename = f"controls_{genome}.tsv"
     try:
         data_path = resources.files("methreport.data").joinpath(filename)
-        df = pd.read_csv(str(data_path), sep="\t")
-        log.debug("Loaded %d bundled control rows for %s", len(df), genome)
+        df = normalise_controls(pd.read_csv(str(data_path), sep="\t"))
+        log.info("Loaded %d bundled control positions for %s", len(df), genome)
         return df
     except (FileNotFoundError, ModuleNotFoundError, TypeError):
-        log.warning("Bundled controls for '%s' not found at %s — returning empty DataFrame", genome, filename)
-        return pd.DataFrame(columns=["region_name", "position", "sample_id", "methylation_pct"])
+        log.warning("Bundled controls for '%s' not found at %s — flagging will "
+                    "fall back to allelic asymmetry", genome, filename)
+        return empty_controls()
 
 
 def load_user_controls(path: Path | str) -> pd.DataFrame:
@@ -71,13 +125,9 @@ def load_user_controls(path: Path | str) -> pd.DataFrame:
     else:
         raise ValueError(f"Unsupported controls format: {suffix}")
 
-    required = {"region_name", "position", "sample_id", "methylation_pct"}
-    missing = required - set(df.columns)
-    if missing:
-        raise ValueError(f"Controls file missing columns: {missing}")
-
-    log.info("Loaded %d user control rows from %s", len(df), path)
-    return df[list(required)]
+    normalised = normalise_controls(df)
+    log.info("Loaded %d user control positions from %s", len(normalised), path)
+    return normalised
 
 
 def merge_controls(
@@ -94,10 +144,29 @@ def merge_controls(
         return load_user_controls(user_controls_path)
 
     bundled = load_bundled_controls(genome)
-    if user_controls_path is not None:
-        user = load_user_controls(user_controls_path)
-        return pd.concat([bundled, user], ignore_index=True)
-    return bundled
+    if user_controls_path is None:
+        return bundled
+
+    user = load_user_controls(user_controls_path)
+    if bundled.empty:
+        return user
+
+    # Both sides are per-position mean and SD. Two such summaries cannot be
+    # pooled without each one's control count, which the published controls do
+    # not record, so a position present in both takes the user's value rather
+    # than a fabricated combination.
+    keys = set(zip(user["region_name"], user["position"]))
+    overlapping = bundled.apply(
+        lambda row: (row["region_name"], row["position"]) in keys, axis=1)
+    if overlapping.any():
+        log.warning("%d bundled control positions are also in %s and were "
+                    "replaced by it; pass --replace-controls to discard the "
+                    "bundled set entirely", int(overlapping.sum()), path_name(user_controls_path))
+    return pd.concat([bundled[~overlapping], user], ignore_index=True)
+
+
+def path_name(path: Path | str) -> str:
+    return Path(path).name
 
 
 def compute_reference_ranges(
@@ -110,17 +179,19 @@ def compute_reference_ranges(
         position, mean, sd, n_controls, lower_1sd, upper_1sd, lower_2sd, upper_2sd
     Only positions where controls show 40-60% methylation (imprinted pattern) are included.
     """
+    if controls.empty:
+        return pd.DataFrame(columns=["position", "mean", "sd", "n_controls",
+                                     "lower_1sd", "upper_1sd", "lower_2sd", "upper_2sd"])
+
+    controls = normalise_controls(controls)
     subset = controls[controls["region_name"] == region_name].copy()
     if subset.empty:
         return pd.DataFrame(columns=["position", "mean", "sd", "n_controls",
                                      "lower_1sd", "upper_1sd", "lower_2sd", "upper_2sd"])
 
-    # Identify imprinted positions: those where controls are 40-60%
-    pos_stats = (
-        subset.groupby("position")["methylation_pct"]
-        .agg(mean="mean", sd="std", n_controls="count")
-        .reset_index()
-    )
+    # Keep only positions the controls show as imprinted, which is where a
+    # sample's departure from them is interpretable.
+    pos_stats = subset[["position", "mean", "sd", "n_controls"]].copy()
     pos_stats["sd"] = pos_stats["sd"].fillna(0.0)
     pos_stats = pos_stats[
         pos_stats["mean"].between(IMPRINT_MIN, IMPRINT_MAX)
