@@ -178,7 +178,7 @@ DISORDER_INFO: dict[str, DisorderInfo] = {
         description=(
             "The DLK1-MEG3 imprinting domain on chromosome 14q32 is controlled by a "
             "germline-derived differentially methylated region (IG-DMR) and a "
-            "somatic DMR at MEG3:TSS-DMR. The paternal allele expresses DLK1 and MEG8; "
+            "somatic DMR at MEG3:TSS-DMR; an isolated IG-DMR defect can occur without upd(14). The paternal allele expresses DLK1 and MEG8; "
             "the maternal allele expresses MEG3 (GTL2), RTL1as, and other non-coding RNAs. "
             "Methylation defects cause opposite phenotypes: "
             "gain-of-methylation silences maternal transcripts (Kagami-Ogata); "
@@ -190,12 +190,12 @@ DISORDER_INFO: dict[str, DisorderInfo] = {
             "Both associated with upd(14) or 14q32 epimutations",
         ],
         interpretation_low=(
-            "Hypomethylation at MEG3:TSS-DMR and/or MEG8:Int2-DMR suggests loss of the normally "
+            "Hypomethylation at the DLK1/MEG3:IG-DMR, MEG3:TSS-DMR and/or MEG8:Int2-DMR suggests loss of the normally "
             "methylated paternal allele, causing reduced DLK1 expression. This is the hallmark "
             "finding in Temple syndrome (upd(14)mat or epimutation)."
         ),
         interpretation_high=(
-            "Hypermethylation at MEG3:TSS-DMR and/or MEG8:Int2-DMR indicates silencing of the "
+            "Hypermethylation at the DLK1/MEG3:IG-DMR, MEG3:TSS-DMR and/or MEG8:Int2-DMR indicates silencing of the "
             "maternally expressed MEG3 transcript, consistent with Kagami-Ogata syndrome "
             "(upd(14)pat or paternal duplication of 14q32)."
         ),

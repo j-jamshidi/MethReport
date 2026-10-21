@@ -1,7 +1,7 @@
 """DMR region definitions for T2T-CHM13v2.0 and hg38 reference genomes.
 
 Coordinates derived from NanoImprint (carolinehey/NanoImprint) covering the
-14 differentially methylated regions associated with known imprinting disorders.
+15 differentially methylated regions associated with known imprinting disorders.
 """
 
 from dataclasses import dataclass
@@ -75,6 +75,20 @@ T2T_REGIONS: list[DMRegion] = [
         end=2790240,
         disorder="BWS",
         expected_methylation="maternal",
+    ),
+    # Control means here average ~68-71%, above the 40-60% window that
+    # compute_reference_ranges uses to pick informative positions, so only a
+    # minority of positions inform the z-score. The window is deliberately left
+    # unchanged: asymmetry carries most of the weight at this locus and the
+    # report shows "asymmetry only" where the z-score cannot speak.
+    DMRegion(
+        name="DLK1_MEG3_IG_DMR",
+        label="DLK1/MEG3:IG-DMR",
+        chrom="chr14",
+        start=95043978,
+        end=95046609,
+        disorder="Kagami-Ogata/Temple",
+        expected_methylation="paternal",
     ),
     DMRegion(
         name="MEG3_TSS_DMR",
@@ -216,6 +230,15 @@ HG38_REGIONS: list[DMRegion] = [
         expected_methylation="maternal",
     ),
     DMRegion(
+        name="DLK1_MEG3_IG_DMR",
+        label="DLK1/MEG3:IG-DMR",
+        chrom="chr14",
+        start=100809335,
+        end=100811397,
+        disorder="Kagami-Ogata/Temple",
+        expected_methylation="paternal",
+    ),
+    DMRegion(
         name="MEG3_TSS_DMR",
         label="MEG3:TSS-DMR",
         chrom="chr14",
@@ -307,7 +330,7 @@ DISORDER_GROUPS: dict[str, list[str]] = {
     "TNDM": ["PLAGL1_alt_TSS_DMR"],
     "SRS": ["GRB10_alt_TSS_DMR", "MEST_alt_TSS_DMR", "H19_IGF2_IG_DMR"],
     "BWS": ["H19_IGF2_IG_DMR", "KCNQ1OT1_TSS_DMR"],
-    "Kagami-Ogata/Temple": ["MEG3_TSS_DMR", "MEG8_Int2_DMR"],
+    "Kagami-Ogata/Temple": ["DLK1_MEG3_IG_DMR", "MEG3_TSS_DMR", "MEG8_Int2_DMR"],
     "Prader-Willi/Angelman": ["MAGEL2_TSS_DMR", "SNURF_TSS_DMR"],
     "MLID": ["PEG3_TSS_DMR"],
     "PHP": ["GNAS_NESP_TSS_DMR", "GNAS_AS1_TSS_DMR", "GNASXL_Ex1_DMR", "GNAS_AB_TSS_DMR"],

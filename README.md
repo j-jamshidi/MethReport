@@ -2,7 +2,7 @@
 
 **Clinical-grade DNA methylation imprinting disorder reporter**
 
-MethReport analyses Oxford Nanopore modbam files and produces an interactive HTML report showing methylation levels across 14 differentially methylated regions (DMRs) associated with known imprinting disorders.
+MethReport analyses Oxford Nanopore modbam files and produces an interactive HTML report showing methylation levels across 15 differentially methylated regions (DMRs) associated with known imprinting disorders.
 
 ---
 
@@ -10,7 +10,7 @@ MethReport analyses Oxford Nanopore modbam files and produces an interactive HTM
 
 - Reads **modbam files directly** (BAM with MM/ML tags — no pre-conversion needed)
 - Supports **haplotype-phased** analysis (HP1 / HP2 tags)
-- Covers **14 imprinting DMRs** across TNDM, SRS, BWS, Kagami-Ogata, Temple, Prader-Willi, Angelman, PHP, and MLID
+- Covers **15 imprinting DMRs** across TNDM, SRS, BWS, Kagami-Ogata, Temple, Prader-Willi, Angelman, PHP, and MLID
 - Two reference genomes: **T2T-CHM13v2.0** and **hg38**
 - Outputs:
   - Interactive HTML report (Plotly and webfonts are fetched from a CDN, so
@@ -31,7 +31,7 @@ MethReport analyses Oxford Nanopore modbam files and produces an interactive HTM
 | TNDM | PLAGL1:alt-TSS-DMR |
 | SRS | GRB10:alt-TSS-DMR, MEST:alt-TSS-DMR, H19/IGF2:IG-DMR |
 | BWS | H19/IGF2:IG-DMR, KCNQ1OT1:TSS-DMR |
-| Kagami-Ogata / Temple | MEG3:TSS-DMR, MEG8:Int2-DMR |
+| Kagami-Ogata / Temple | DLK1/MEG3:IG-DMR, MEG3:TSS-DMR, MEG8:Int2-DMR |
 | Prader-Willi / Angelman | MAGEL2:TSS-DMR, SNURF:TSS-DMR |
 | MLID | PEG3:TSS-DMR |
 | PHP | GNAS-NESP:TSS-DMR, GNAS-AS1:TSS-DMR, GNASXL:Ex1-DMR, GNAS A/B:TSS-DMR |

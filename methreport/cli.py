@@ -307,7 +307,7 @@ def run(
         ))
 
         with Progress(SpinnerColumn(), TextColumn("{task.description}"), console=console) as prog:
-            t = prog.add_task("Analysing 14 imprinting DMRs...", total=None)
+            t = prog.add_task("Analysing imprinting DMRs...", total=None)
             analysis, report_path = _run_single_bam(
                 bam=bam,
                 ref_norm=ref_norm,
@@ -364,7 +364,7 @@ def run(
         from methreport.analysis import run_analysis
 
         with Progress(SpinnerColumn(), TextColumn("{task.description}"), console=console) as prog:
-            t = prog.add_task("Analysing 14 imprinting DMRs...", total=None)
+            t = prog.add_task("Analysing imprinting DMRs...", total=None)
             analysis = run_analysis(
                 genome=ref_norm,
                 sample_id=sid,

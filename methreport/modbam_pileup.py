@@ -2,7 +2,7 @@
 
 Strategy (tried in order):
   1. modkit subprocess — if modkit ≥ 0.2.0 is on PATH.
-     Runs two commands over all 14 regions at once:
+     Runs two commands over all DMR regions at once:
        a) unphased pileup  → combines + and − strand CpG calls correctly
        b) partitioned pileup (--partition-tag HP) → auto-splits HP1 / HP2
   2. Internal pysam fallback — if modkit is absent.
@@ -113,7 +113,7 @@ def _bam_uses_chr_prefix(bam_path: Path) -> bool:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _write_region_bed(genome: str, out_path: Path, use_chr: bool) -> None:
-    """Write a temporary BED file covering all 14 DMR windows."""
+    """Write a temporary BED file covering all DMR windows."""
     with open(out_path, "w") as fh:
         for r in get_regions(genome):
             chrom = r.chrom if use_chr else r.chrom.lstrip("chr")
