@@ -552,6 +552,41 @@ def _write_batch_summary_tsv(analyses: list, out_dir: Path) -> None:
     logging.getLogger(__name__).info("Batch summary TSV → %s", tsv_path)
 
 
+controls_app = typer.Typer(help="Build and inspect control cohorts.", add_completion=False,
+                           pretty_exceptions_enable=False)
+app.add_typer(controls_app, name="controls")
+
+
+@controls_app.command("build")
+def controls_build(
+    tsv: list[Path] = typer.Argument(..., help="Per-CpG TSVs (<sample>_cpg_methylation.tsv) from control samples"),
+    ref: str = typer.Option(..., "--ref", "-r", help="Reference genome the samples were analysed against: 't2t' or 'hg38'"),
+    out: Path = typer.Option(..., "--out", "-o", help="Output controls TSV (long schema)"),
+    min_cov: int = typer.Option(5, "--min-cov", help="Minimum CpG coverage to include a site"),
+    mod_code: str = typer.Option(..., "--mod-code", help="Modification the samples were counted as: '5mC' or '5mC+5hmC'"),
+    basecaller_model: str = typer.Option(..., "--basecaller-model", help="Basecaller model used for the cohort"),
+    pipeline_version: str = typer.Option(..., "--pipeline-version", help="Upstream pipeline version that produced the BAMs"),
+    notes: str = typer.Option("", "--notes", help="Free text recorded in the provenance file"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Debug logging"),
+) -> None:
+    """Pool per-sample methylation into an in-house control file with provenance."""
+    from methreport.controls_build import build_controls, provenance, write_controls
+
+    _setup_logging(verbose)
+    try:
+        controls = build_controls(tsv, ref, min_cov=min_cov)
+    except ValueError as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1)
+
+    record = provenance(controls, ref, min_cov, mod_code, basecaller_model,
+                        pipeline_version, notes)
+    path, prov = write_controls(controls, record, out)
+    console.print(f"[green]Controls:[/green] {path}  ({record['n_samples']} samples, "
+                  f"{record['n_positions']} positions)")
+    console.print(f"[green]Provenance:[/green] {prov}")
+
+
 def main() -> None:
     app()
 

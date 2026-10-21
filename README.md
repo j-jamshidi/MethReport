@@ -161,6 +161,22 @@ supplement it. Two aggregated summaries of the same position cannot be pooled
 without each one's control count, so where both files cover a position the
 user's value is taken and a warning is logged.
 
+### Building an in-house cohort
+
+Analyse each control sample with `methreport run`, then pool the per-CpG TSVs it
+wrote (unphased rows only) into the long schema, with a provenance record:
+
+```bash
+methreport controls build results/*/*_cpg_methylation.tsv \
+    --ref hg38 --out controls/controls_hg38.tsv \
+    --mod-code 5mC --basecaller-model <model> --pipeline-version <version>
+```
+
+The provenance file (`controls_hg38.provenance.json`) lists the samples, the
+modification counted, the basecaller and pipeline versions, and the number of
+controls at each position. Use the same modification code for every sample
+analysed against these controls.
+
 ### Obtaining the NanoImprint controls
 
 No control file ships with this repository. The published NanoImprint
