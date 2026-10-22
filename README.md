@@ -19,7 +19,7 @@ MethReport analyses Oxford Nanopore modbam files and produces an interactive HTM
   - Per-CpG methylation TSV
   - IGV-ready BED tracks (unphased + HP1 + HP2)
 - Control reference ranges loaded from `methreport/data/`, with user-override
-  support. **No control file ships with this repository** — see Controls below
+  support. An in-house hg38 cohort ships in `methreport/data/`; there is **no T2T control file** — see Controls below
 - Rich terminal output with progress and flagged-region summary
 
 ---
@@ -179,7 +179,9 @@ analysed against these controls.
 
 ### Obtaining the NanoImprint controls
 
-No control file ships with this repository. The published NanoImprint
+The bundled `controls_hg38.tsv` is an in-house cohort of 46 normal runs (pure 5mC,
+modkit 0.6.4, per-position mean, SD and n); its provenance is in
+`controls_hg38.provenance.json`. No T2T controls are bundled. The published NanoImprint
 spreadsheets give per-position mean and SD, with no per-sample values and no
 control count, so they convert to the aggregated schema:
 
