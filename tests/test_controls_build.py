@@ -24,17 +24,17 @@ def _tsv(tmp_path, sample, pcts, haplotype="unphased", region=None, n_total=30):
 
 
 def test_pools_unphased_rows_into_long_schema(tmp_path):
-    a = _tsv(tmp_path, "LRWGSP01", [50, 48])
-    b = _tsv(tmp_path, "LRWGSP02", [52, 50])
+    a = _tsv(tmp_path, "ctrl_01", [50, 48])
+    b = _tsv(tmp_path, "ctrl_02", [52, 50])
     out = build_controls([a, b], "hg38")
     assert list(out.columns) == ["region_name", "position", "sample_id", "methylation_pct"]
-    assert set(out["sample_id"]) == {"LRWGSP01", "LRWGSP02"}
+    assert set(out["sample_id"]) == {"ctrl_01", "ctrl_02"}
     assert len(out) == 4
     assert (out["region_name"] == REGION.name).all()
 
 
 def test_phased_rows_and_thin_coverage_are_excluded(tmp_path):
-    p = tmp_path / "LRWGSP01_cpg_methylation.tsv"
+    p = tmp_path / "ctrl_01_cpg_methylation.tsv"
     keep = _tsv(tmp_path, "keep", [50])
     df = pd.read_csv(keep, sep="\t")
     hp = df.assign(haplotype="hp1")
@@ -45,7 +45,7 @@ def test_phased_rows_and_thin_coverage_are_excluded(tmp_path):
 
 
 def test_yields_mean_sd_and_n_per_position(tmp_path):
-    paths = [_tsv(tmp_path, f"LRWGSP0{i}", [50 + i]) for i in range(1, 5)]
+    paths = [_tsv(tmp_path, f"ctrl_0{i}", [50 + i]) for i in range(1, 5)]
     out = build_controls(paths, "hg38")
     agg = normalise_controls(out)
     assert int(agg["n_controls"].iloc[0]) == 4
@@ -60,13 +60,13 @@ def test_accession_shaped_sample_id_is_refused(tmp_path):
 
 
 def test_region_from_another_build_is_refused(tmp_path):
-    path = _tsv(tmp_path, "LRWGSP01", [50], region="NOT A REGION")
+    path = _tsv(tmp_path, "ctrl_01", [50], region="NOT A REGION")
     with pytest.raises(ValueError, match="not defined"):
         build_controls([path], "hg38")
 
 
 def test_provenance_records_n_per_position(tmp_path):
-    paths = [_tsv(tmp_path, f"LRWGSP0{i}", [50, 51]) for i in range(1, 4)]
+    paths = [_tsv(tmp_path, f"ctrl_0{i}", [50, 51]) for i in range(1, 4)]
     out = build_controls(paths, "hg38")
     rec = provenance(out, "hg38", 5, "5mC", "model-x", "v0")
     assert rec["n_samples"] == 3

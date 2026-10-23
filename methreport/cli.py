@@ -111,7 +111,7 @@ def _run_single_bam(
         "Input mode": "modbam (MM/ML)",
         "Min. coverage": str(min_cov),
         "Call threshold": str(call_threshold),
-        "Controls": str(controls) if controls else "Bundled defaults",
+        "Controls": str(controls) if controls else "None supplied",
     }
     report_path = generate_report(analysis, out_dir, run_metadata=run_meta)
     return analysis, report_path
@@ -153,10 +153,15 @@ def run(
         help="Sample ID (single-sample mode only; ignored with --list).",
     ),
     controls: Optional[Path] = typer.Option(None, "--controls", "-c", help="User-supplied controls TSV/XLSX"),
-    replace_controls: bool = typer.Option(False, "--replace-controls", help="Replace (not supplement) bundled controls"),
+    replace_controls: bool = typer.Option(False, "--replace-controls", help="Discard any controls found in methreport/data/ and use only --controls"),
     min_cov: int = typer.Option(5, "--min-cov", help="Minimum CpG coverage to include a site"),
     no_bed_tracks: bool = typer.Option(False, "--no-bed-tracks", help="Skip BED track output"),
     no_tsv: bool = typer.Option(False, "--no-tsv", help="Skip TSV export"),
+    require_controls: bool = typer.Option(
+        False, "--require-controls",
+        help="Fail if no control data is available, rather than falling back to "
+             "allelic asymmetry alone.",
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Debug logging"),
 ) -> None:
     """Run methylation imprinting analysis and generate HTML report(s)."""
@@ -177,6 +182,21 @@ def run(
     if ref_norm not in ("t2t", "hg38"):
         console.print(f"[red]Error:[/red] Unknown genome '{ref}'. Choose 't2t' or 'hg38'.")
         raise typer.Exit(1)
+
+    if require_controls:
+        from methreport.controls import merge_controls
+        try:
+            loaded = merge_controls(ref_norm, controls, replace_controls)
+        except (OSError, ValueError) as exc:
+            console.print(f"[red]Error:[/red] controls could not be loaded: {exc}")
+            raise typer.Exit(1)
+        if loaded.empty:
+            console.print(
+                "[red]Error:[/red] --require-controls was given but no control data was "
+                "loaded. Pass --controls <file>, or drop --require-controls to judge "
+                "regions by allelic asymmetry alone."
+            )
+            raise typer.Exit(1)
 
     from methreport import __version__
     from methreport.modbam_pileup import MODKIT_MIN_VERSION, modkit_version
@@ -393,7 +413,7 @@ def run(
             "Input": str(bed),
             "Input mode": "BEDMethyl (modkit)",
             "Min. coverage": str(min_cov),
-            "Controls": str(controls) if controls else "Bundled defaults",
+            "Controls": str(controls) if controls else "None supplied",
         }
         report_path = generate_report(analysis, out, run_metadata=run_meta)
         console.print(f"\n[bold green]Done![/bold green]  Report → [cyan]{report_path}[/cyan]")

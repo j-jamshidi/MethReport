@@ -58,7 +58,7 @@ def build_controls(
         if _ACCESSION.match(sid):
             raise ValueError(
                 f"sample id '{sid}' looks like an episode accession; use the "
-                "run number (e.g. LRWGSP01) instead"
+                "laboratory run identifier instead"
             )
 
     frames = []

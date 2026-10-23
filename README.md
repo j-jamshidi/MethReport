@@ -18,8 +18,8 @@ MethReport analyses Oxford Nanopore modbam files and produces an interactive HTM
   - Per-region summary TSV
   - Per-CpG methylation TSV
   - IGV-ready BED tracks (unphased + HP1 + HP2)
-- Control reference ranges loaded from `methreport/data/`, with user-override
-  support. An in-house hg38 cohort ships in `methreport/data/`; there is **no T2T control file** — see Controls below
+- Control reference ranges supplied at run time with `--controls`. **No control
+  file ships with the package** — see Controls below
 - Rich terminal output with progress and flagged-region summary
 
 ---
@@ -129,7 +129,9 @@ Options:
   --out  -o PATH     Output directory  [default: methreport_output]
   --sample -s TEXT   Sample identifier (default: BAM filename)
   --controls -c PATH User-supplied controls TSV/XLSX
-  --replace-controls Replace bundled controls instead of supplementing
+  --replace-controls Discard any controls found in methreport/data/
+  --require-controls Fail if no controls are loaded, instead of judging by
+                     allelic asymmetry alone
   --min-cov INT      Minimum CpG coverage  [default: 5]
   --call-threshold   MM/ML probability threshold  [default: 0.5]
   --no-bed-tracks    Skip BED track output
@@ -156,8 +158,9 @@ PLAGL1_alt_TSS_DMR    145200350    ctrl_01     48.2
 ```
 
 Pass either form with `--controls my_controls.tsv`, and add
-`--replace-controls` to discard the file in `methreport/data/` rather than
-supplement it. Two aggregated summaries of the same position cannot be pooled
+`--replace-controls` to discard any file found in `methreport/data/` rather than
+supplement it. Add `--require-controls` for diagnostic runs, so that a mistyped
+path or a missing file is an error instead of a quieter result. Two aggregated summaries of the same position cannot be pooled
 without each one's control count, so where both files cover a position the
 user's value is taken and a warning is logged.
 
@@ -179,9 +182,19 @@ analysed against these controls.
 
 ### Obtaining the NanoImprint controls
 
-The bundled `controls_hg38.tsv` is an in-house cohort of 46 normal runs (pure 5mC,
-modkit 0.6.4, per-position mean, SD and n); its provenance is in
-`controls_hg38.provenance.json`. No T2T controls are bundled. The published NanoImprint
+No control file ships with this package. A cohort built from clinical samples is
+patient-derived data and does not belong in a code repository, so keep yours in
+your laboratory's reference directory and pass it with `--controls`. Without
+controls every region falls back to allelic asymmetry between the haplotypes,
+which `confidence` records as `asymmetry only`.
+
+If a cohort ever has to be shared, share the aggregated form. A long-form file is
+reduced to per-position mean, SD and count on load, so an aggregated file gives
+identical reference ranges without one row per patient. Keep the long form in the
+laboratory, since only it carries `n` per position and can be extended sample by
+sample.
+
+The published NanoImprint
 spreadsheets give per-position mean and SD, with no per-sample values and no
 control count, so they convert to the aggregated schema:
 
@@ -190,7 +203,7 @@ git clone https://github.com/carolinehey/NanoImprint
 python scripts/convert_controls.py \
     --t2t  NanoImprint/ctrls_2.xlsx \
     --hg38 NanoImprint/ctrls_hg38.xlsx \
-    --out  methreport/data/
+    --out  controls/
 ```
 
 That yields 2,196 positions across all 14 hg38 regions, and 2,211 for T2T.

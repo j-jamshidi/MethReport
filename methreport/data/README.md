@@ -1,10 +1,14 @@
-# Bundled control data
+# Control data
 
-- `controls_hg38.tsv` - in-house cohort, long schema (`region_name`, `position`,
-  `sample_id`, `methylation_pct`), unphased rows only. Samples are identified by run number.
-- `controls_hg38.provenance.json` - samples, modification counted (5mC), basecaller,
-  pipeline and modkit versions, and n per position.
+No control file ships with this package, deliberately: a cohort built from clinical
+samples is patient-derived data and does not belong in a code repository.
 
-No `controls_t2t.tsv` is bundled. Samples tested against these controls must be
-counted as pure 5mC with the same modkit settings. Further files can be built
-with `methreport controls build`.
+Supply one at run time with `--controls`, in either accepted schema:
+
+    long        region_name  position  sample_id  methylation_pct
+    aggregated  region_name  position  mean  sd  [n_controls]
+
+Without controls, `z_score_flag` has nothing to compare against and every region falls
+back to the allelic asymmetry between the two haplotypes, which `confidence` records as
+`asymmetry only`. See the Controls section of the top-level README for how to build a
+cohort and for the licensing position on the published NanoImprint data.
