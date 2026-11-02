@@ -242,6 +242,39 @@ methreport list-regions --ref t2t
 
 ---
 
+## Release Notes
+
+### 0.3.1
+
+Correction to the clinical wording in the report. In 0.3.0 the explanatory text
+for the Prader-Willi / Angelman entry had the direction inverted: it described
+hypomethylation at SNURF:TSS-DMR and MAGEL2:TSS-DMR as Prader-Willi syndrome and
+hypermethylation as Angelman syndrome. Both DMRs are methylated on the maternal
+allele, so hypermethylation indicates Prader-Willi syndrome and hypomethylation
+indicates Angelman syndrome. The numeric LOW/HIGH flags were not affected; only
+the text shown beside them was.
+
+A review of every disorder entry found further errors, also corrected:
+
+- Silver-Russell syndrome: GRB10:alt-TSS-DMR and MEST:alt-TSS-DMR are maternally
+  methylated, so upd(7)mat gives hypermethylation, not hypomethylation.
+- Kagami-Ogata / Temple syndrome: MEG8:Int2-DMR is maternally methylated and moves
+  opposite to the DLK1/MEG3:IG-DMR and MEG3:TSS-DMR; MEG8 is a maternally expressed gene.
+- PHP: the PHP1B pattern arises with paternal (not maternal) UPD of 20q, and
+  methylation at GNAS-NESP:TSS-DMR increases (it does not decrease).
+- `expected_methylation` labels for GRB10:alt-TSS-DMR, MEG8:Int2-DMR and
+  GNAS A/B:TSS-DMR were changed to "maternal". This field is not used by the
+  flagging logic.
+
+Coordinates, region names and flagging logic are unchanged. Reports produced by
+0.3.0 for any sample with a flag in the affected entries carry the wrong text and
+should be reviewed. The evidence for each statement is in
+`docs/direction_review.md`, and the allele and direction for each DMR is recorded in
+`docs/direction_truth_table.tsv`, which `tests/test_direction_truth_table.py` checks
+against the report text and region labels.
+
+---
+
 ## Data Source
 
 Region coordinates and control data derived from

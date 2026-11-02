@@ -15,6 +15,9 @@ class DMRegion:
     start: int
     end: int
     disorder: str
+    # Parental allele that carries the methylation in a normal individual
+    # (the other allele is unmethylated). Informational only: no flagging logic
+    # reads this field. Sources: docs/direction_truth_table.tsv.
     expected_methylation: str   # "maternal" | "paternal" | "biallelic"
     unreliable: bool = False    # True → known mapping/interpretation artefact; never flagged
     unreliable_reason: str = ""
@@ -40,7 +43,7 @@ T2T_REGIONS: list[DMRegion] = [
         start=50943355,
         end=50944182,
         disorder="SRS",
-        expected_methylation="paternal",
+        expected_methylation="maternal",
     ),
     DMRegion(
         name="MEST_alt_TSS_DMR",
@@ -106,7 +109,7 @@ T2T_REGIONS: list[DMRegion] = [
         start=95140000,
         end=95140384,
         disorder="Kagami-Ogata/Temple",
-        expected_methylation="paternal",
+        expected_methylation="maternal",
     ),
     DMRegion(
         name="MAGEL2_TSS_DMR",
@@ -169,7 +172,7 @@ T2T_REGIONS: list[DMRegion] = [
         start=60671509,
         end=60673270,
         disorder="PHP",
-        expected_methylation="paternal",
+        expected_methylation="maternal",
     ),
 ]
 
@@ -193,7 +196,7 @@ HG38_REGIONS: list[DMRegion] = [
         start=50782178,
         end=50783005,
         disorder="SRS",
-        expected_methylation="paternal",
+        expected_methylation="maternal",
     ),
     DMRegion(
         name="MEST_alt_TSS_DMR",
@@ -254,7 +257,7 @@ HG38_REGIONS: list[DMRegion] = [
         start=100904568,
         end=100904952,
         disorder="Kagami-Ogata/Temple",
-        expected_methylation="paternal",
+        expected_methylation="maternal",
     ),
     DMRegion(
         name="MAGEL2_TSS_DMR",
@@ -317,7 +320,7 @@ HG38_REGIONS: list[DMRegion] = [
         start=58888390,
         end=58890146,
         disorder="PHP",
-        expected_methylation="paternal",
+        expected_methylation="maternal",
     ),
 ]
 

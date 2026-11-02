@@ -79,8 +79,10 @@ DISORDER_INFO: dict[str, DisorderInfo] = {
             "A growth restriction syndrome characterised by severe pre- and post-natal growth "
             "retardation, relative macrocephaly at birth, and variable body asymmetry. Two main "
             "molecular causes: hypomethylation of H19/IGF2:IG-DMR (ICR1) on 11p15 (~40%) and "
-            "maternal uniparental disomy of chromosome 7 (~10%), reflected in GRB10 and MEST "
-            "methylation changes."
+            "maternal uniparental disomy of chromosome 7 (~10%). The GRB10:alt-TSS-DMR (7p12) and "
+            "MEST:alt-TSS-DMR (7q32) are methylated on the maternal allele and unmethylated on "
+            "the paternal allele, so upd(7)mat gives two methylated maternal copies and "
+            "increased methylation at these loci."
         ),
         key_features=[
             "Pre- and postnatal growth restriction (height &lt;-2 SD)",
@@ -91,13 +93,20 @@ DISORDER_INFO: dict[str, DisorderInfo] = {
             "Clinodactyly of 5th finger",
         ],
         interpretation_low=(
-            "Hypomethylation suggests loss of paternal imprint, reducing IGF2 expression. "
-            "At H19/IGF2:IG-DMR this is the key finding in ~40% of SRS. "
-            "At GRB10/MEST, reduced methylation may reflect upd(7)mat."
+            "Hypomethylation at GRB10:alt-TSS-DMR and/or MEST:alt-TSS-DMR indicates loss of "
+            "methylation on the normally methylated maternal allele. This is not the pattern of "
+            "maternal uniparental disomy of chromosome 7 (which increases methylation at these "
+            "loci) and is not an established mechanism of SRS. Loss of methylation at maternally "
+            "methylated DMRs is described in multi-locus imprinting disturbance (MLID); consider "
+            "the other maternally methylated DMRs. Hypomethylation of ICR1 (the commonest "
+            "molecular finding in SRS) is reported separately under H19/IGF2:IG-DMR."
         ),
         interpretation_high=(
-            "Hypermethylation at these loci is not a recognised mechanism for SRS. "
-            "ICR1 hypermethylation is instead associated with Beckwith-Wiedemann syndrome."
+            "Hypermethylation at GRB10:alt-TSS-DMR and/or MEST:alt-TSS-DMR indicates absence of "
+            "the normally unmethylated paternal allele, leaving only the methylated maternal "
+            "pattern. This is the pattern expected with maternal uniparental disomy of "
+            "chromosome 7 (upd(7)mat), found in approximately 5-10% of SRS. Confirmation "
+            "requires microsatellite or SNP-array analysis of the proband and parents."
         ),
         inheritance="Paternal imprint (biallelic IGF2 loss → undergrowth)",
         gene_locus="H19/IGF2 — chr11p15.5 · GRB10, MEST — chr7",
@@ -178,26 +187,38 @@ DISORDER_INFO: dict[str, DisorderInfo] = {
         description=(
             "The DLK1-MEG3 imprinting domain on chromosome 14q32 is controlled by a "
             "germline-derived differentially methylated region (IG-DMR) and a "
-            "somatic DMR at MEG3:TSS-DMR; an isolated IG-DMR defect can occur without upd(14). The paternal allele expresses DLK1 and MEG8; "
-            "the maternal allele expresses MEG3 (GTL2), RTL1as, and other non-coding RNAs. "
+            "somatic DMR at MEG3:TSS-DMR; an isolated IG-DMR defect can occur without upd(14). The paternal allele expresses DLK1 and RTL1; "
+            "the maternal allele expresses MEG3 (GTL2), RTL1as, MEG8 and other non-coding RNAs. "
+            "The IG-DMR and MEG3:TSS-DMR are methylated on the paternal allele; the MEG8:Int2-DMR "
+            "is a secondary DMR methylated on the maternal allele, so it changes in the opposite "
+            "direction to the IG-DMR and MEG3:TSS-DMR. "
             "Methylation defects cause opposite phenotypes: "
-            "gain-of-methylation silences maternal transcripts (Kagami-Ogata); "
-            "loss-of-methylation silences paternal DLK1 expression (Temple syndrome)."
+            "gain-of-methylation at the IG-DMR and MEG3:TSS-DMR silences maternal transcripts (Kagami-Ogata); "
+            "loss-of-methylation at these DMRs silences paternal DLK1 and RTL1 expression (Temple syndrome)."
         ),
         key_features=[
-            "HIGH methylation → Kagami-Ogata: bell-shaped thorax, placentomegaly, coat-hanger ribs",
-            "LOW methylation → Temple: growth restriction, truncal obesity, early puberty",
-            "Both associated with upd(14) or 14q32 epimutations",
+            "HIGH methylation at IG-DMR / MEG3:TSS-DMR → Kagami-Ogata: bell-shaped thorax, placentomegaly, coat-hanger ribs",
+            "LOW methylation at IG-DMR / MEG3:TSS-DMR → Temple: growth restriction, truncal obesity, early puberty",
+            "MEG8:Int2-DMR (maternally methylated) moves in the opposite direction: LOW in Kagami-Ogata, HIGH in Temple",
+            "Kagami-Ogata: upd(14)pat, maternal deletion or epimutation; Temple: upd(14)mat, paternal deletion or epimutation",
         ],
         interpretation_low=(
-            "Hypomethylation at the DLK1/MEG3:IG-DMR, MEG3:TSS-DMR and/or MEG8:Int2-DMR suggests loss of the normally "
-            "methylated paternal allele, causing reduced DLK1 expression. This is the hallmark "
-            "finding in Temple syndrome (upd(14)mat or epimutation)."
+            "Hypomethylation at the DLK1/MEG3:IG-DMR and/or MEG3:TSS-DMR (normally methylated on the "
+            "paternal allele) indicates loss of the paternal methylation pattern, causing reduced "
+            "DLK1 and RTL1 expression. This is the hallmark finding in Temple syndrome "
+            "(upd(14)mat, paternal deletion or epimutation). Hypomethylation at the MEG8:Int2-DMR "
+            "(normally methylated on the maternal allele) is the reverse: it is the expected "
+            "finding in Kagami-Ogata syndrome (upd(14)pat, maternal deletion or epimutation) and "
+            "should be read together with the IG-DMR and MEG3:TSS-DMR."
         ),
         interpretation_high=(
-            "Hypermethylation at the DLK1/MEG3:IG-DMR, MEG3:TSS-DMR and/or MEG8:Int2-DMR indicates silencing of the "
-            "maternally expressed MEG3 transcript, consistent with Kagami-Ogata syndrome "
-            "(upd(14)pat or paternal duplication of 14q32)."
+            "Hypermethylation at the DLK1/MEG3:IG-DMR and/or MEG3:TSS-DMR (normally methylated on "
+            "the paternal allele) indicates silencing of the maternally expressed MEG3 transcript, "
+            "consistent with Kagami-Ogata syndrome (upd(14)pat, maternal deletion or epimutation). "
+            "Hypermethylation at the MEG8:Int2-DMR (normally methylated on the maternal allele) is "
+            "the reverse: it is the expected finding in Temple syndrome (upd(14)mat, paternal "
+            "deletion or epimutation) and should be read together with the IG-DMR and "
+            "MEG3:TSS-DMR."
         ),
         inheritance="Paternal imprint — IG-DMR / MEG3:TSS-DMR",
         gene_locus="MEG3, MEG8, DLK1 — chr14q32",
@@ -214,24 +235,35 @@ DISORDER_INFO: dict[str, DisorderInfo] = {
             "The SNURF-SNRPN imprinting centre on 15q11-q13 controls expression of a large "
             "cluster of paternally expressed genes (SNURF/SNRPN, MAGEL2, NDN, snoRNAs) and "
             "the maternally expressed UBE3A. The DMRs at SNURF:TSS and MAGEL2:TSS are "
-            "methylated on the maternal allele. Loss of paternal expression (hypomethylation) "
-            "causes Prader-Willi syndrome; loss of maternal UBE3A expression causes Angelman syndrome."
+            "methylated on the maternal allele and unmethylated on the paternal allele. "
+            "Prader-Willi syndrome is caused by loss of the paternally expressed genes (paternal "
+            "15q11-q13 deletion, maternal uniparental disomy 15 or an imprinting defect), which "
+            "leaves only the methylated maternal pattern (hypermethylation). Angelman syndrome is "
+            "caused by loss of maternal UBE3A expression (maternal 15q11-q13 deletion, paternal "
+            "uniparental disomy 15 or an imprinting defect), which leaves only the unmethylated "
+            "paternal pattern (hypomethylation). Pathogenic UBE3A variants do not change methylation."
         ),
         key_features=[
-            "LOW methylation → Prader-Willi: neonatal hypotonia, hyperphagia, obesity, intellectual disability, hypogonadism",
-            "HIGH methylation → Angelman: absent/minimal speech, seizures, ataxia, happy demeanour, intellectual disability",
+            "HIGH methylation → Prader-Willi: neonatal hypotonia, hyperphagia, obesity, intellectual disability, hypogonadism",
+            "LOW methylation → Angelman: absent/minimal speech, seizures, ataxia, happy demeanour, intellectual disability",
         ],
         interpretation_low=(
-            "Hypomethylation at SNURF:TSS-DMR and/or MAGEL2:TSS-DMR indicates loss of the normally "
-            "methylated maternal allele at these loci, consistent with Prader-Willi syndrome "
-            "(upd(15)mat, 15q11-q13 deletion of paternal allele, or imprinting centre defect). "
-            "DNA methylation analysis has >99% sensitivity for PW syndrome."
+            "Hypomethylation at SNURF:TSS-DMR and/or MAGEL2:TSS-DMR indicates absence of the "
+            "normally methylated maternal allele, leaving only the unmethylated paternal pattern. "
+            "This is the methylation finding in Angelman syndrome caused by a maternal 15q11-q13 "
+            "deletion, paternal uniparental disomy 15 (upd(15)pat) or an imprinting centre defect. "
+            "Methylation alone does not distinguish these mechanisms; dosage and uniparental "
+            "disomy analysis are needed. Normal methylation does not exclude Angelman syndrome: "
+            "UBE3A pathogenic variants and cases without an identified cause have normal "
+            "methylation (methylation testing detects approximately 80% of Angelman syndrome)."
         ),
         interpretation_high=(
-            "Hypermethylation at SNURF:TSS-DMR may indicate loss of the normally unmethylated "
-            "paternal allele, as seen in Angelman syndrome caused by paternal uniparental disomy "
-            "(upd(15)pat) or imprinting centre defects. Note: UBE3A mutation and 15q11-q13 "
-            "deletion AS cases may show normal or only mildly abnormal methylation."
+            "Hypermethylation at SNURF:TSS-DMR and/or MAGEL2:TSS-DMR indicates absence of the "
+            "normally unmethylated paternal allele, leaving only the methylated maternal pattern. "
+            "This is the methylation finding in Prader-Willi syndrome caused by a paternal "
+            "15q11-q13 deletion, maternal uniparental disomy 15 (upd(15)mat) or an imprinting "
+            "centre defect, and is detected in more than 99% of cases. Methylation alone does "
+            "not distinguish these mechanisms; dosage and uniparental disomy analysis are needed."
         ),
         inheritance="Maternal imprint — SNURF/SNRPN imprinting centre",
         gene_locus="SNURF, SNRPN, MAGEL2, NDN, UBE3A — chr15q11-q13",
@@ -279,10 +311,14 @@ DISORDER_INFO: dict[str, DisorderInfo] = {
             "A group of disorders characterised by end-organ resistance to PTH (and other "
             "hormones using Gsα signalling) due to dysregulation of the complex GNAS imprinting "
             "cluster on 20q13. The locus encodes multiple transcripts with distinct imprinting "
-            "patterns: GNAS exon A/B and XL are paternally expressed; NESP55 is maternally "
-            "expressed; AS1 is expressed from both alleles with paternal predominance. "
-            "PHP type 1b is most commonly caused by methylation defects at GNAS A/B:TSS-DMR "
-            "and/or GNAS-AS1:TSS-DMR."
+            "patterns: GNAS exon A/B, XL and the antisense transcript (AS1) are paternally expressed; "
+            "NESP55 is maternally expressed. The GNAS A/B:TSS-DMR, GNASXL:Ex1-DMR and GNAS-AS1:TSS-DMR "
+            "are methylated on the maternal allele; the GNAS-NESP:TSS-DMR is methylated on the "
+            "paternal allele. PHP type 1B is characterised by loss of methylation at GNAS "
+            "A/B:TSS-DMR, either alone (familial disease with a maternal STX16 deletion) or "
+            "together with loss of methylation at GNASXL:Ex1-DMR and GNAS-AS1:TSS-DMR and gain of "
+            "methylation at GNAS-NESP:TSS-DMR (sporadic disease, paternal uniparental disomy of 20q, "
+            "or maternal NESP/AS deletions)."
         ),
         key_features=[
             "Hypocalcaemia (PTH resistance)",
@@ -293,15 +329,24 @@ DISORDER_INFO: dict[str, DisorderInfo] = {
             "Ossifications (progressive osseous heteroplasia — POH)",
         ],
         interpretation_low=(
-            "Hypomethylation at GNAS A/B:TSS-DMR and/or AS1/XL DMRs indicates loss of "
-            "normal methylation at maternally methylated elements, consistent with PHP type 1b "
-            "(AD-PHP1b or sporadic epimutation). This pattern is associated with upd(20)mat "
-            "or STX16/NESP55 deletions. Reduced NESP55:TSS-DMR methylation supports "
-            "maternal-allele loss."
+            "Hypomethylation at GNAS A/B:TSS-DMR, GNASXL:Ex1-DMR and/or GNAS-AS1:TSS-DMR "
+            "(all normally methylated on the maternal allele) indicates loss of the maternal "
+            "methylation imprint, consistent with PHP type 1B. Isolated loss at GNAS A/B:TSS-DMR "
+            "is typical of familial disease with a maternal STX16 deletion; loss at two or more of "
+            "these DMRs is typical of sporadic PHP1B, maternal NESP/AS deletions and paternal "
+            "uniparental disomy of 20q. Normal methylation does not exclude PHP: GNAS coding "
+            "variants (PHP type 1A) do not change methylation. Hypomethylation at "
+            "GNAS-NESP:TSS-DMR (normally methylated on the paternal allele) has no established "
+            "interpretation here; clinical correlation advised."
         ),
         interpretation_high=(
-            "Hypermethylation at GNAS loci is less common but may indicate gain of methylation "
-            "on the paternal allele. Clinical correlation with PTH and calcium levels is essential."
+            "Hypermethylation at GNAS-NESP:TSS-DMR (normally methylated on the paternal allele) "
+            "indicates gain of methylation on the maternal allele. Together with hypomethylation "
+            "at the maternally methylated DMRs this is the pattern of sporadic PHP type 1B, "
+            "including PHP1B due to paternal uniparental disomy of 20q. Hypermethylation at "
+            "GNAS A/B:TSS-DMR, GNASXL:Ex1-DMR or GNAS-AS1:TSS-DMR (normally methylated on the "
+            "maternal allele) is not an established pattern of PHP1B and has no established "
+            "interpretation here. Clinical correlation with PTH and calcium levels is essential."
         ),
         inheritance="Complex — tissue-specific maternal/paternal imprinting",
         gene_locus="GNAS, NESP55, XLαs, GNASAS — chr20q13",
