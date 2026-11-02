@@ -13,6 +13,7 @@ venv/
 !methreport/data/*.bed
 *.tsv
 !methreport/data/*.tsv
+!docs/direction_truth_table.tsv
 *.html
 .DS_Store
 .pytest_cache/

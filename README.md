@@ -244,6 +244,14 @@ methreport list-regions --ref t2t
 
 ## Release Notes
 
+### 0.3.2
+
+Packaging correction. The 0.3.1 tag was published without
+`docs/direction_truth_table.tsv`, because the repository ignores `*.tsv` to keep
+control cohorts out and the file was caught by that rule; its tests therefore
+could not run from a clean clone. 0.3.2 adds the file (with a narrow exception to
+the rule) and changes nothing else. Use 0.3.2 rather than 0.3.1.
+
 ### 0.3.1
 
 Correction to the clinical wording in the report. In 0.3.0 the explanatory text
@@ -266,9 +274,10 @@ A review of every disorder entry found further errors, also corrected:
   GNAS A/B:TSS-DMR were changed to "maternal". This field is not used by the
   flagging logic.
 
-Coordinates, region names and flagging logic are unchanged. Reports produced by
-0.3.0 for any sample with a flag in the affected entries carry the wrong text and
-should be reviewed. The evidence for each statement is in
+Coordinates, region names and flagging logic are unchanged. The description of
+each condition is printed in every report, flagged or not, so every report
+produced by 0.3.0 carries the wrong wording for the affected entries and should be
+reviewed. The evidence for each statement is in
 `docs/direction_review.md`, and the allele and direction for each DMR is recorded in
 `docs/direction_truth_table.tsv`, which `tests/test_direction_truth_table.py` checks
 against the report text and region labels.

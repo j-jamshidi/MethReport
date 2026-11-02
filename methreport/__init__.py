@@ -1,3 +1,3 @@
 """MethReport — clinical-grade DNA methylation imprinting disorder reporter."""
 
-__version__ = "0.3.1"
+__version__ = "0.3.2"
